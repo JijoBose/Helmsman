@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+
+{% block title %}Deploy - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-normal">Deploy</h1>
+      <p class="mt-1 text-sm text-slate-600">{{ project_path }}</p>
+      <p class="mt-1 text-xs font-mono text-slate-500">{{ deploy_config_path }}</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <button
+        class="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+        hx-post="/deploy"
+        hx-target="#deploy-request"
+        hx-swap="innerHTML">
+        Deploy
+      </button>
+      <button
+        class="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+        hx-post="/deploy/abort"
+        hx-target="#deploy-request"
+        hx-swap="innerHTML">
+        Abort
+      </button>
+    </div>
+  </div>
+
+  <div id="deploy-request" class="min-h-6 text-sm"></div>
+
+  <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_26rem]">
+    <section class="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+      <div class="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">Deploy Log</div>
+      <div
+        id="log-output"
+        class="h-[34rem] overflow-y-auto px-4 py-3 font-mono text-xs leading-5"
+        hx-ext="sse"
+        sse-connect="/deploy/stream"
+        sse-swap="message"
+        hx-swap="beforeend scroll:#log-output:bottom"></div>
+    </section>
+
+    <aside class="space-y-3">
+      <section class="space-y-3">
+        <h2 class="text-sm font-semibold text-slate-800">Servers</h2>
+        <div
+          hx-get="/servers"
+          hx-trigger="load, every 10s"
+          hx-swap="innerHTML">
+          <div class="text-sm text-slate-500">Loading...</div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</section>
+{% endblock %}

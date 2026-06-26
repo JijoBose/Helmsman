@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+
+{% block title %}History - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-normal">History</h1>
+  </div>
+
+  {% if empty %}
+  <div class="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600">No deploy runs yet.</div>
+  {% else %}
+  <div class="overflow-hidden rounded-md border border-slate-200 bg-white">
+    <table class="w-full text-left text-sm">
+      <thead class="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+        <tr>
+          <th class="px-4 py-3">Run</th>
+          <th class="px-4 py-3">Started</th>
+          <th class="px-4 py-3">Project</th>
+          <th class="px-4 py-3">Exit</th>
+          <th class="px-4 py-3">Duration</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for run in runs %}
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 font-medium"><a class="text-slate-950 underline" href="/history/{{ run.id }}">#{{ run.id }}</a></td>
+          <td class="px-4 py-3 text-slate-600">{{ run.started_at }}</td>
+          <td class="px-4 py-3 text-slate-600">{{ run.project_path }}</td>
+          <td class="px-4 py-3 text-slate-600">{{ run.exit_code }}</td>
+          <td class="px-4 py-3 text-slate-600">{{ run.duration }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

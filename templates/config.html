@@ -1,0 +1,60 @@
+{% extends "layout.html" %}
+
+{% block title %}Config - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-normal">Config</h1>
+    <p class="mt-1 text-sm text-slate-600">{{ project_path }}</p>
+    <p class="mt-1 text-xs font-mono text-slate-500">{{ deploy_config_path }}</p>
+  </div>
+
+  {% if saved %}
+  <div class="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Saved deploy.yml.</div>
+  {% endif %}
+
+  <form class="grid gap-5 rounded-md border border-slate-200 bg-white p-5" hx-put="/config" hx-target="body" hx-swap="outerHTML">
+    <label class="grid gap-1 text-sm font-medium text-slate-700">
+      Service
+      <input name="service" value="{{ service }}" class="rounded-md border border-slate-300 px-3 py-2 text-slate-950">
+    </label>
+
+    <label class="grid gap-1 text-sm font-medium text-slate-700">
+      Image
+      <input name="image" value="{{ image }}" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">
+    </label>
+
+    <label class="grid gap-1 text-sm font-medium text-slate-700">
+      Servers
+      <textarea name="servers" rows="5" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">{{ servers }}</textarea>
+    </label>
+
+    <div class="grid gap-5 md:grid-cols-2">
+      <label class="grid gap-1 text-sm font-medium text-slate-700">
+        env.clear
+        <textarea name="env_clear" rows="6" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">{{ env_clear }}</textarea>
+      </label>
+      <label class="grid gap-1 text-sm font-medium text-slate-700">
+        env.secret
+        <textarea name="env_secret" rows="6" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">{{ env_secret }}</textarea>
+      </label>
+    </div>
+
+    <div class="grid gap-5 md:grid-cols-2">
+      <label class="grid gap-1 text-sm font-medium text-slate-700">
+        registry.server
+        <input name="registry_server" value="{{ registry_server }}" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">
+      </label>
+      <label class="grid gap-1 text-sm font-medium text-slate-700">
+        registry.username
+        <input name="registry_username" value="{{ registry_username }}" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">
+      </label>
+    </div>
+
+    <div>
+      <button class="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Save</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends "layout.html" %}
+
+{% block title %}Deploy Run - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-normal">Run #{{ run.id }}</h1>
+      <p class="mt-1 text-sm text-slate-600">{{ run.project_path }}</p>
+    </div>
+    <a href="/history" class="text-sm font-medium text-slate-700 underline">Back to history</a>
+  </div>
+
+  <dl class="grid gap-3 rounded-md border border-slate-200 bg-white p-4 text-sm sm:grid-cols-3">
+    <div>
+      <dt class="font-medium text-slate-500">Started</dt>
+      <dd class="mt-1 text-slate-950">{{ run.started_at }}</dd>
+    </div>
+    <div>
+      <dt class="font-medium text-slate-500">Exit code</dt>
+      <dd class="mt-1 text-slate-950">{{ run.exit_code }}</dd>
+    </div>
+    <div>
+      <dt class="font-medium text-slate-500">Duration</dt>
+      <dd class="mt-1 text-slate-950">{{ run.duration }}</dd>
+    </div>
+  </dl>
+
+  <pre class="max-h-[42rem] overflow-auto rounded-md border border-slate-800 bg-slate-950 p-4 font-mono text-xs leading-5 text-slate-100">{{ run.log }}</pre>
+</section>
+{% endblock %}
