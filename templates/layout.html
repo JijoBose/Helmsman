@@ -8,29 +8,67 @@
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
     <style>
-      .log-line { margin: 0; padding: 0.25rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-      .log-info { color: #cbd5e1; }
-      .log-building { color: #93c5fd; }
-      .log-pushing { color: #a5b4fc; }
-      .log-deploying { color: #fcd34d; }
-      .log-health-check { color: #67e8f9; }
-      .log-done { color: #86efac; }
-      .log-error { color: #fca5a5; }
+      .log-line { margin: 0; padding: 0.2rem 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.45; color: #0f172a; }
+      .log-info { color: #64748b; }
+      .log-building { color: #3b82f6; }
+      .log-pushing { color: #6366f1; }
+      .log-deploying { color: #ca8a04; }
+      .log-health-check { color: #06b6d4; }
+      .log-done { color: #16a34a; }
+      .log-error { color: #dc2626; }
+
+      /* Dark terminal overrides for deploy logs etc. */
+      .terminal .log-line { color: #e2e8f0; }
+      .terminal .log-info { color: #cbd5e1; }
+      .terminal .log-building { color: #93c5fd; }
+      .terminal .log-pushing { color: #a5b4fc; }
+      .terminal .log-deploying { color: #fcd34d; }
+      .terminal .log-health-check { color: #67e8f9; }
+      .terminal .log-done { color: #86efac; }
+      .terminal .log-error { color: #fca5a5; }
+      .status-card { transition: box-shadow .1s ease; }
+      .status-card:hover { box-shadow: 0 1px 3px rgb(15 23 42 / 0.08); }
+      .nav-link { transition: all .1s ease; }
+      .terminal {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        background: #0f172a;
+        color: #e2e8f0;
+      }
+      body { background: #f8fafc; color: #0f172a; }
+      .tab { border-bottom: 2px solid transparent; }
+      .tab-active { border-bottom-color: #2563eb; color: #0f172a; font-weight: 600; }
+      .metric-card { background: #ffffff; border: 1px solid #e2e8f0; }
+      .content-card { background: #ffffff; border: 1px solid #e2e8f0; }
+      .section-header { color: #64748b; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     </style>
   </head>
-  <body class="min-h-screen bg-slate-100 text-slate-950">
+  <body class="min-h-screen bg-slate-50 text-slate-950">
     <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-        <a href="/deploy" class="text-lg font-semibold tracking-normal">Helmsman</a>
+      <div class="mx-auto flex max-w-6xl items-center justify-between px-5 py-3">
+        <div class="flex items-center gap-3">
+          <a href="/" class="flex items-center gap-2 text-xl font-semibold tracking-tight">
+            <span class="inline-flex h-7 w-7 items-center justify-center rounded bg-orange-500 text-white text-sm font-bold">H</span>
+            <span>Helmsman</span>
+          </a>
+          <span class="hidden md:inline text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">Kamal</span>
+        </div>
         <nav class="flex items-center gap-1 text-sm font-medium">
-          <a href="/deploy" class="rounded-md px-3 py-2 {% if active == "deploy" %}bg-slate-950 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Deploy</a>
-          <a href="/config" class="rounded-md px-3 py-2 {% if active == "config" %}bg-slate-950 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">Config</a>
-          <a href="/history" class="rounded-md px-3 py-2 {% if active == "history" %}bg-slate-950 text-white{% else %}text-slate-600 hover:bg-slate-100{% endif %}">History</a>
+          <a href="/deploy" class="nav-link rounded-md px-3 py-1.5 {% if active == "deploy" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Deploy</a>
+          <a href="/containers" class="nav-link rounded-md px-3 py-1.5 {% if active == "containers" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Containers</a>
+          <a href="/logs" class="nav-link rounded-md px-3 py-1.5 {% if active == "logs" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Logs</a>
+          <a href="/requests" class="nav-link rounded-md px-3 py-1.5 {% if active == "requests" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Requests</a>
+          <a href="/config" class="nav-link rounded-md px-3 py-1.5 {% if active == "config" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Config</a>
+          <a href="/activity" class="nav-link rounded-md px-3 py-1.5 {% if active == "activity" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">Activity</a>
+          <a href="/history" class="nav-link rounded-md px-3 py-1.5 {% if active == "history" %}bg-slate-900 text-white{% else %}text-slate-600 hover:bg-slate-100 hover:text-slate-900{% endif %}">History</a>
         </nav>
       </div>
     </header>
     <main class="mx-auto max-w-6xl px-5 py-6">
       {% block content %}{% endblock %}
     </main>
+    <footer class="mx-auto max-w-6xl px-5 pb-8 text-xs text-slate-400">
+      Helmsman — local browser UI for Kamal • Run from your project root
+    </footer>
   </body>
 </html>

@@ -6,7 +6,9 @@ use std::{
     collections::VecDeque,
     env, fs,
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
+    time::Duration,
 };
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -32,7 +34,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = routes::router(state).nest_service("/static", ServeDir::new("static"));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 
-    println!("Helmsman listening on http://127.0.0.1:3000");
+    let url = "http://127.0.0.1:3000";
+    println!("Helmsman listening on {}", url);
+
+    // Open browser automatically (non-blocking)
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        let _ = Command::new("open").arg(url).spawn();
+    });
+
     axum::serve(listener, app).await?;
 
     Ok(())

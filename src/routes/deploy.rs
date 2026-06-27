@@ -1,4 +1,4 @@
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, fs, time::Duration};
 
 use askama::Template;
 use axum::{
@@ -9,6 +9,7 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
     },
 };
+use serde_yaml::Value;
 
 use crate::{
     kamal::{DeployLine, KamalError, KamalRunner},
@@ -23,17 +24,78 @@ struct DeployTemplate {
     active: &'static str,
     project_path: String,
     deploy_config_path: String,
+    service: String,
+    image: String,
+    servers_summary: String,
+    accessories_summary: String,
 }
 
 pub async fn page(State(state): State<AppState>) -> Result<Html<String>, AppError> {
-    let project_path = state.project_path.lock().await.display().to_string();
-    let deploy_config_path = state.deploy_config_path.lock().await.display().to_string();
+    let project_path = state.project_path.lock().await.clone();
+    let deploy_config_path = state.deploy_config_path.lock().await.clone();
+
+    let (service, image, servers_summary, accessories_summary) =
+        read_deploy_summary(&deploy_config_path);
 
     render(DeployTemplate {
         active: "deploy",
-        project_path,
-        deploy_config_path,
+        project_path: project_path.display().to_string(),
+        deploy_config_path: deploy_config_path.display().to_string(),
+        service,
+        image,
+        servers_summary,
+        accessories_summary,
     })
+}
+
+fn read_deploy_summary(config_path: &std::path::Path) -> (String, String, String, String) {
+    let contents = match fs::read_to_string(config_path) {
+        Ok(c) => c,
+        Err(_) => return (String::new(), String::new(), String::new(), String::new()),
+    };
+
+    let value: Value = match serde_yaml::from_str(&contents) {
+        Ok(v) => v,
+        Err(_) => return (String::new(), String::new(), String::new(), String::new()),
+    };
+
+    let service = value
+        .get("service")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let image = value
+        .get("image")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+
+    let servers_count = value
+        .get("servers")
+        .and_then(Value::as_sequence)
+        .map(|s| s.len())
+        .unwrap_or(0);
+
+    let servers_summary = if servers_count > 0 {
+        format!("{} servers", servers_count)
+    } else {
+        "servers not listed".to_string()
+    };
+
+    let acc_count = value
+        .get("accessories")
+        .and_then(Value::as_mapping)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    let accessories_summary = if acc_count > 0 {
+        format!("{} accessories", acc_count)
+    } else {
+        "no accessories".to_string()
+    };
+
+    (service, image, servers_summary, accessories_summary)
 }
 
 pub async fn start(State(state): State<AppState>) -> Result<Response, AppError> {

@@ -1,0 +1,76 @@
+{% extends "layout.html" %}
+
+{% block title %}Activity - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3 text-sm">
+      <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
+        <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+      </div>
+      <span class="text-slate-500">Audit &amp; runs</span>
+    </div>
+    <div class="flex gap-2">
+      <button
+        class="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+        hx-get="/activity/audit"
+        hx-target="#audit-panel"
+        hx-swap="innerHTML">
+        ↻ Refresh Audit
+      </button>
+      <form hx-post="/activity/rollback" hx-target="#rollback-result" hx-swap="innerHTML">
+        <button class="rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-700 hover:bg-amber-100">Rollback</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="flex items-center border-b border-slate-200 text-sm">
+    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
+    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
+    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests</a>
+    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
+    <a href="/activity" class="tab px-4 py-2 font-medium tab-active">Activity</a>
+  </div>
+
+  <div class="grid md:grid-cols-5 gap-4">
+    <!-- Local Activity -->
+    <div class="md:col-span-2 content-card rounded-xl p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-slate-900">Local Runs</div>
+        <a href="/history" class="text-xs text-blue-600 hover:underline">View all →</a>
+      </div>
+      {% if runs.is_empty() %}
+        <div class="text-sm text-slate-500 py-4">No local activity yet. Deploys will appear here.</div>
+      {% else %}
+        <div class="space-y-1 text-sm">
+          {% for run in runs %}
+          <div class="flex justify-between rounded bg-slate-50 border border-slate-100 px-3 py-1.5 text-xs">
+            <a href="/history/{{ run.id }}" class="font-medium text-slate-900">#{{ run.id }}</a>
+            <span class="text-slate-500">{{ run.started_at }}</span>
+            <span class="font-mono text-slate-600">exit {{ run.exit_code }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- Kamal Audit -->
+    <div class="md:col-span-3">
+      <div class="text-sm font-semibold mb-1 px-1">Kamal Audit</div>
+      <div id="audit-panel" class="content-card rounded-xl p-3 text-xs font-mono max-h-[320px] overflow-auto bg-slate-50 text-slate-900">
+        {% if audit_lines.is_empty() %}
+          <div class="text-slate-500">No audit output yet. Click Refresh Audit.</div>
+        {% else %}
+          {% for line in audit_lines %}
+          <pre class="log-line">{{ line }}</pre>
+          {% endfor %}
+        {% endif %}
+      </div>
+      <div id="rollback-result" class="mt-2 text-xs text-amber-600"></div>
+    </div>
+  </div>
+
+  <div class="text-xs text-slate-500">Audit is fetched via <span class="font-mono">kamal audit</span>. Rollback runs <span class="font-mono">kamal rollback</span>.</div>
+</section>
+{% endblock %}

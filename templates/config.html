@@ -4,57 +4,65 @@
 
 {% block content %}
 <section class="space-y-5">
-  <div>
-    <h1 class="text-2xl font-semibold tracking-normal">Config</h1>
-    <p class="mt-1 text-sm text-slate-600">{{ project_path }}</p>
-    <p class="mt-1 text-xs font-mono text-slate-500">{{ deploy_config_path }}</p>
+  <!-- Context bar -->
+  <div class="flex items-center gap-3 text-sm">
+    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
+      <span class="font-medium">deploy config</span>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="flex items-center border-b border-slate-200 text-sm">
+    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
+    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
+    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests</a>
+    <a href="/config" class="tab px-4 py-2 font-medium tab-active">Config</a>
+    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
+  </div>
+
+  <div class="flex items-center justify-between mb-1">
+    <div>
+      <div class="text-xs text-slate-500">{{ project_path }}</div>
+      <div class="font-mono text-xs text-slate-500">{{ deploy_config_path }}</div>
+      <div class="text-[11px] text-slate-500">{% if !last_modified.is_empty() %}Modified {{ last_modified }}{% endif %}</div>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/config/raw" class="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-100">Raw</a>
+      <button onclick="window.open('file://{{ deploy_config_path }}', '_blank')" class="rounded border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-100">Open</button>
+    </div>
   </div>
 
   {% if saved %}
-  <div class="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Saved deploy.yml.</div>
+  <div class="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">Saved.</div>
   {% endif %}
 
-  <form class="grid gap-5 rounded-md border border-slate-200 bg-white p-5" hx-put="/config" hx-target="body" hx-swap="outerHTML">
-    <label class="grid gap-1 text-sm font-medium text-slate-700">
-      Service
-      <input name="service" value="{{ service }}" class="rounded-md border border-slate-300 px-3 py-2 text-slate-950">
-    </label>
-
-    <label class="grid gap-1 text-sm font-medium text-slate-700">
-      Image
-      <input name="image" value="{{ image }}" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">
-    </label>
-
-    <label class="grid gap-1 text-sm font-medium text-slate-700">
-      Servers
-      <textarea name="servers" rows="5" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">{{ servers }}</textarea>
-    </label>
-
-    <div class="grid gap-5 md:grid-cols-2">
-      <label class="grid gap-1 text-sm font-medium text-slate-700">
-        env.clear
-        <textarea name="env_clear" rows="6" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">{{ env_clear }}</textarea>
-      </label>
-      <label class="grid gap-1 text-sm font-medium text-slate-700">
-        env.secret
-        <textarea name="env_secret" rows="6" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">{{ env_secret }}</textarea>
-      </label>
+  <!-- Raw viewer / editor like screenshot -->
+  <form class="content-card rounded-xl overflow-hidden" hx-put="/config" hx-target="body" hx-swap="outerHTML">
+    <div class="flex items-center justify-between border-b border-slate-200 bg-slate-100 px-3 py-1 text-xs">
+      <div class="text-slate-600 mono">{{ deploy_config_path }} <span class="text-slate-500"># {{ raw.lines().count() }} lines</span></div>
+      <button class="rounded bg-blue-600 px-3 py-0.5 text-xs font-semibold text-white">Save</button>
     </div>
-
-    <div class="grid gap-5 md:grid-cols-2">
-      <label class="grid gap-1 text-sm font-medium text-slate-700">
-        registry.server
-        <input name="registry_server" value="{{ registry_server }}" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">
-      </label>
-      <label class="grid gap-1 text-sm font-medium text-slate-700">
-        registry.username
-        <input name="registry_username" value="{{ registry_username }}" class="rounded-md border border-slate-300 px-3 py-2 font-mono text-slate-950">
-      </label>
-    </div>
-
-    <div>
-      <button class="rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">Save</button>
-    </div>
+    <textarea name="raw" spellcheck="false" class="w-full bg-white p-4 font-mono text-xs leading-relaxed text-slate-800 h-[420px] focus:outline-none border-t border-slate-100" style="resize: vertical;">{{ raw }}</textarea>
   </form>
+
+  <details class="text-xs text-slate-600">
+    <summary class="cursor-pointer hover:text-slate-900">Advanced: structured form</summary>
+    <form class="mt-2 grid gap-4 rounded-xl border border-slate-200 bg-white p-4" hx-put="/config" hx-target="body" hx-swap="outerHTML">
+      <div class="grid md:grid-cols-2 gap-3">
+        <label class="grid gap-1 text-xs">Service<input name="service" value="{{ service }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
+        <label class="grid gap-1 text-xs">Image<input name="image" value="{{ image }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
+      </div>
+      <label class="grid gap-1 text-xs">Servers<textarea name="servers" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm" rows="3">{{ servers }}</textarea></label>
+      <div class="grid md:grid-cols-2 gap-3">
+        <label class="grid gap-1 text-xs">env.clear<textarea name="env_clear" rows="3" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm">{{ env_clear }}</textarea></label>
+        <label class="grid gap-1 text-xs">env.secret<textarea name="env_secret" rows="3" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm">{{ env_secret }}</textarea></label>
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <label class="grid gap-1 text-xs">registry.server<input name="registry_server" value="{{ registry_server }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
+        <label class="grid gap-1 text-xs">registry.username<input name="registry_username" value="{{ registry_username }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
+      </div>
+      <button class="self-start rounded bg-slate-900 text-white px-3 py-1 text-xs">Save structured</button>
+    </form>
+  </details>
 </section>
 {% endblock %}

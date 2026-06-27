@@ -1,0 +1,79 @@
+{% extends "layout.html" %}
+
+{% block title %}Logs - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div class="flex items-center gap-3 text-sm">
+    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
+      <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+    </div>
+    <span class="text-slate-500">Live container logs</span>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="flex items-center border-b border-slate-200 text-sm">
+    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
+    <a href="/logs" class="tab px-4 py-2 font-medium tab-active">Logs</a>
+    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests</a>
+    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
+    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
+  </div>
+
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <button
+        class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
+        onclick="startLiveLogs()">
+        ▶ Live
+      </button>
+      <button
+        class="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+        hx-get="/logs"
+        hx-target="#log-output"
+        hx-swap="innerHTML">
+        Reload recent
+      </button>
+      <button onclick="document.getElementById('log-output').innerHTML=''" class="text-xs text-slate-500 hover:text-slate-700 px-2">Clear</button>
+      <span id="live-indicator" class="hidden text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">LIVE</span>
+    </div>
+    <div class="text-xs text-slate-500">From <span class="font-medium">kamal app logs</span></div>
+  </div>
+
+  <div class="content-card rounded-xl overflow-hidden">
+    <div class="flex items-center justify-between border-b border-slate-200 bg-slate-900 px-3 py-1.5 text-xs text-slate-300">
+      <div class="mono">container logs</div>
+      <div class="text-[10px]">Click Live to stream new lines</div>
+    </div>
+    <div id="log-output" class="terminal h-[520px] overflow-y-auto p-3 text-[#cbd5e1] text-xs leading-relaxed">
+      {% for line in lines %}<pre class="log-line">{{ line }}</pre>{% endfor %}
+    </div>
+  </div>
+
+<script>
+function startLiveLogs() {
+  const out = document.getElementById('log-output');
+  const ind = document.getElementById('live-indicator');
+  ind.classList.remove('hidden');
+  ind.classList.add('inline-block');
+
+  const es = new EventSource('/logs/stream');
+  es.onmessage = function(ev) {
+    const pre = document.createElement('pre');
+    pre.className = 'log-line';
+    pre.textContent = ev.data;
+    out.appendChild(pre);
+    out.scrollTop = out.scrollHeight;
+  };
+  es.onerror = function() {
+    es.close();
+    ind.classList.add('hidden');
+  };
+  // Stop after some time or allow user to clear
+  setTimeout(() => { if (!es.CLOSED) { /* keep open */ } }, 300000);
+}
+</script>
+
+  <p class="text-xs text-slate-500">Tip: Click Live to stream. Use Reload recent to fetch last output.</p>
+</section>
+{% endblock %}

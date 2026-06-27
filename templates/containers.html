@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+
+{% block title %}Containers - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <!-- Context header like screenshots -->
+  <div class="flex items-center gap-3 text-sm">
+    <div class="flex items-center gap-1.5 rounded bg-slate-100 border border-slate-200 pl-2 pr-3 py-1 text-slate-700">
+      <span class="text-orange-500">▼</span>
+      <span class="font-medium">default</span>
+    </div>
+    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
+      <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+    </div>
+    {% if !host.is_empty() %}
+    <div class="flex items-center gap-1.5 text-slate-500">
+      <span class="mono text-xs">{{ host }}</span>
+      <span class="text-slate-400">·</span>
+      <span class="rounded bg-slate-100 border border-slate-200 px-1.5 py-px text-[10px] text-slate-500">{% if !role.is_empty() %}{{ role }}{% else %}web{% endif %}</span>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Metrics row -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    {% for m in metrics %}
+    <div class="metric-card rounded-xl p-4">
+      <div class="flex items-center gap-2 text-xs uppercase tracking-widest section-header">
+        <span>{{ m.icon }}</span>
+        <span>{{ m.label }}</span>
+      </div>
+      <div class="mt-1 flex items-baseline gap-2">
+        <div class="text-2xl font-semibold">{{ m.value }}</div>
+        {% if !m.sub.is_empty() %}<div class="text-xs text-slate-400">{{ m.sub }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Tab bar -->
+  <div class="flex items-center border-b border-slate-200 text-sm">
+    <a href="/containers" class="tab px-4 py-2 font-medium tab-active">Containers <span class="ml-1 rounded bg-slate-100 px-1.5 py-px text-xs">{{ total_containers }}</span></a>
+    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
+    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests <span class="ml-1 rounded bg-slate-100 px-1.5 py-px text-xs">{% if !request_count.is_empty() %}{{ request_count }}{% endif %}</span></a>
+    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
+    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
+  </div>
+
+  <div class="flex items-center justify-between">
+    <div class="text-sm">
+      <span class="font-semibold">{{ running_containers }}</span>/<span class="text-slate-400">{{ total_containers }}</span>
+      <span class="ml-1 text-slate-400">containers running</span>
+    </div>
+    <button
+      class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      hx-get="/containers/status"
+      hx-target="#containers-content"
+      hx-swap="innerHTML">
+      ↻ Refresh
+    </button>
+  </div>
+
+  <div id="containers-content" class="content-card rounded-xl overflow-hidden">
+    <div class="overflow-x-auto">
+      {% include "containers_table.html" %}
+    </div>
+  </div>
+</section>
+{% endblock %}

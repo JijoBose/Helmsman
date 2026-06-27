@@ -17,6 +17,8 @@ pub struct ConfigForm {
     env_secret: String,
     registry_server: String,
     registry_username: String,
+    #[serde(default)]
+    raw: String,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -67,6 +69,10 @@ struct ConfigTemplate {
     active: &'static str,
     project_path: String,
     deploy_config_path: String,
+    raw: String,
+    last_modified: String,
+    saved: bool,
+    // legacy form fields kept for compatibility
     service: String,
     image: String,
     servers: String,
@@ -74,18 +80,21 @@ struct ConfigTemplate {
     env_secret: String,
     registry_server: String,
     registry_username: String,
-    saved: bool,
 }
 
 pub async fn page(State(state): State<AppState>) -> Result<Html<String>, AppError> {
     let project_path = state.project_path.lock().await.clone();
     let deploy_config_path = state.deploy_config_path.lock().await.clone();
+    let (raw, last_modified) = read_raw(&deploy_config_path);
     let form = read_config_form(&deploy_config_path).unwrap_or_default();
 
     render(ConfigTemplate {
         active: "config",
         project_path: project_path.display().to_string(),
         deploy_config_path: deploy_config_path.display().to_string(),
+        raw,
+        last_modified,
+        saved: false,
         service: form.service,
         image: form.image,
         servers: form.servers,
@@ -93,7 +102,28 @@ pub async fn page(State(state): State<AppState>) -> Result<Html<String>, AppErro
         env_secret: form.env_secret,
         registry_server: form.registry_server,
         registry_username: form.registry_username,
+    })
+}
+
+pub async fn raw(State(state): State<AppState>) -> Result<Html<String>, AppError> {
+    let deploy_config_path = state.deploy_config_path.lock().await.clone();
+    let (raw, last_modified) = read_raw(&deploy_config_path);
+
+    // Render a minimal snippet for htmx if needed, or full page. For now full with same template flag.
+    render(ConfigTemplate {
+        active: "config",
+        project_path: "".to_string(),
+        deploy_config_path: deploy_config_path.display().to_string(),
+        raw,
+        last_modified,
         saved: false,
+        service: String::new(),
+        image: String::new(),
+        servers: String::new(),
+        env_clear: String::new(),
+        env_secret: String::new(),
+        registry_server: String::new(),
+        registry_username: String::new(),
     })
 }
 
@@ -103,35 +133,45 @@ pub async fn save(
 ) -> Result<Html<String>, AppError> {
     let project_path = state.project_path.lock().await.clone();
     let deploy_config_path = state.deploy_config_path.lock().await.clone();
-    let config = DeployConfig {
-        service: form.service.trim().to_string(),
-        image: form.image.trim().to_string(),
-        servers: lines(&form.servers),
-        env: EnvConfig {
-            clear: key_values(&form.env_clear),
-            secret: lines(&form.env_secret),
-        },
-        registry: RegistryConfig {
-            server: form.registry_server.trim().to_string(),
-            username: form.registry_username.trim().to_string(),
-        },
+
+    let content_to_write = if !form.raw.trim().is_empty() {
+        form.raw.clone()
+    } else {
+        let config = DeployConfig {
+            service: form.service.trim().to_string(),
+            image: form.image.trim().to_string(),
+            servers: lines(&form.servers),
+            env: EnvConfig {
+                clear: key_values(&form.env_clear),
+                secret: lines(&form.env_secret),
+            },
+            registry: RegistryConfig {
+                server: form.registry_server.trim().to_string(),
+                username: form.registry_username.trim().to_string(),
+            },
+        };
+        serde_yaml::to_string(&config)?
     };
 
-    let yaml = serde_yaml::to_string(&config)?;
-    fs::write(&deploy_config_path, yaml)?;
+    fs::write(&deploy_config_path, &content_to_write)?;
+
+    let (raw, last_modified) = read_raw(&deploy_config_path);
+    let form2 = read_config_form(&deploy_config_path).unwrap_or_default();
 
     render(ConfigTemplate {
         active: "config",
         project_path: project_path.display().to_string(),
         deploy_config_path: deploy_config_path.display().to_string(),
-        service: config.service,
-        image: config.image,
-        servers: config.servers.join("\n"),
-        env_clear: format_key_values(&config.env.clear),
-        env_secret: config.env.secret.join("\n"),
-        registry_server: config.registry.server,
-        registry_username: config.registry.username,
+        raw,
+        last_modified,
         saved: true,
+        service: form2.service,
+        image: form2.image,
+        servers: form2.servers,
+        env_clear: form2.env_clear,
+        env_secret: form2.env_secret,
+        registry_server: form2.registry_server,
+        registry_username: form2.registry_username,
     })
 }
 
@@ -145,8 +185,18 @@ impl Default for ConfigForm {
             env_secret: String::new(),
             registry_server: String::new(),
             registry_username: String::new(),
+            raw: String::new(),
         }
     }
+}
+
+fn read_raw(path: &std::path::Path) -> (String, String) {
+    let contents = fs::read_to_string(path).unwrap_or_default();
+    let modified = match fs::metadata(path) {
+        Ok(m) => m.modified().map(|t| format!("{:?}", t)).unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+    (contents, modified)
 }
 
 fn read_config_form(path: &std::path::Path) -> Result<ConfigForm, AppError> {
@@ -161,6 +211,7 @@ fn read_config_form(path: &std::path::Path) -> Result<ConfigForm, AppError> {
         env_secret: config.env.secret.join("\n"),
         registry_server: config.registry.server,
         registry_username: config.registry.username,
+        raw: String::new(),
     })
 }
 

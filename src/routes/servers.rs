@@ -14,23 +14,23 @@ use crate::{
 use super::{AppError, render};
 
 #[derive(Debug, Clone)]
-struct ServerStatus {
-    hostname: String,
-    container_count: usize,
-    containers: Vec<ContainerStatus>,
+pub struct ServerStatus {
+    pub hostname: String,
+    pub container_count: usize,
+    pub containers: Vec<ContainerStatus>,
 }
 
 #[derive(Debug, Clone)]
-struct ContainerStatus {
-    name: String,
-    role: String,
-    container_id: String,
-    status_label: String,
-    status_detail: String,
-    status_class: String,
-    image: String,
-    ports: String,
-    running_for: String,
+pub struct ContainerStatus {
+    pub name: String,
+    pub role: String,
+    pub container_id: String,
+    pub status_label: String,
+    pub status_detail: String,
+    pub status_class: String,
+    pub image: String,
+    pub ports: String,
+    pub running_for: String,
 }
 
 #[derive(Template)]
@@ -39,15 +39,64 @@ struct ServersTemplate {
     servers: Vec<ServerStatus>,
     empty: bool,
     error: Option<String>,
+    total_hosts: usize,
+    total_containers: usize,
+    running_containers: usize,
 }
 
-pub async fn index(State(state): State<AppState>) -> Result<Html<String>, AppError> {
+#[derive(Template)]
+#[template(path = "servers_page.html")]
+struct ServersPageTemplate {
+    active: &'static str,
+    servers: Vec<ServerStatus>,
+    empty: bool,
+    error: Option<String>,
+    total_hosts: usize,
+    total_containers: usize,
+    running_containers: usize,
+}
+
+pub async fn page(State(state): State<AppState>) -> Result<Html<String>, AppError> {
     let project_path = state.project_path.lock().await.clone();
     let deploy_config_path = state.deploy_config_path.lock().await.clone();
+    let (servers, error, total_hosts, total_containers, running_containers) =
+        fetch_server_status(&project_path, &deploy_config_path).await;
+
+    render(ServersPageTemplate {
+        active: "servers",
+        empty: servers.is_empty(),
+        servers,
+        error,
+        total_hosts,
+        total_containers,
+        running_containers,
+    })
+}
+
+pub async fn status_fragment(State(state): State<AppState>) -> Result<Html<String>, AppError> {
+    let project_path = state.project_path.lock().await.clone();
+    let deploy_config_path = state.deploy_config_path.lock().await.clone();
+    let (servers, error, total_hosts, total_containers, running_containers) =
+        fetch_server_status(&project_path, &deploy_config_path).await;
+
+    render(ServersTemplate {
+        empty: servers.is_empty(),
+        servers,
+        error,
+        total_hosts,
+        total_containers,
+        running_containers,
+    })
+}
+
+pub async fn fetch_server_status(
+    project_path: &std::path::Path,
+    deploy_config_path: &std::path::Path,
+) -> (Vec<ServerStatus>, Option<String>, usize, usize, usize) {
     let mut outputs = Vec::new();
     let mut errors = Vec::new();
 
-    let mut command = kamal_command(&project_path);
+    let mut command = kamal_command(project_path);
     command.arg("app").arg("details");
 
     match run_status_command(command).await {
@@ -55,8 +104,8 @@ pub async fn index(State(state): State<AppState>) -> Result<Html<String>, AppErr
         Err(error) => errors.push(format_status_error(&error)),
     }
 
-    for accessory in accessory_names(&deploy_config_path) {
-        let mut command = kamal_command(&project_path);
+    for accessory in accessory_names(deploy_config_path) {
+        let mut command = kamal_command(project_path);
         command.arg("accessory").arg("details").arg(&accessory);
 
         match run_status_command(command).await {
@@ -74,11 +123,24 @@ pub async fn index(State(state): State<AppState>) -> Result<Html<String>, AppErr
         None
     };
 
-    render(ServersTemplate {
-        empty: servers.is_empty(),
-        servers,
-        error,
-    })
+    let (total_hosts, total_containers, running_containers) = compute_stats(&servers);
+
+    (servers, error, total_hosts, total_containers, running_containers)
+}
+
+fn compute_stats(servers: &[ServerStatus]) -> (usize, usize, usize) {
+    let total_hosts = servers.len();
+    let mut total_containers = 0;
+    let mut running = 0;
+    for s in servers {
+        total_containers += s.container_count;
+        for c in &s.containers {
+            if c.status_label == "Running" {
+                running += 1;
+            }
+        }
+    }
+    (total_hosts, total_containers, running)
 }
 
 enum StatusCommandError {

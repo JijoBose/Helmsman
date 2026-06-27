@@ -3,23 +3,45 @@
 {% block title %}Deploy - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+<section class="space-y-6">
+  <!-- Header -->
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
     <div>
-      <h1 class="text-2xl font-semibold tracking-normal">Deploy</h1>
-      <p class="mt-1 text-sm text-slate-600">{{ project_path }}</p>
-      <p class="mt-1 text-xs font-mono text-slate-500">{{ deploy_config_path }}</p>
+      <div class="flex items-center gap-3">
+        <h1 class="text-2xl font-semibold tracking-tight">Deploy</h1>
+        <span class="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">Ready</span>
+      </div>
+      <div class="mt-1 space-y-0.5">
+        <div class="flex items-center gap-2 text-sm">
+          <span class="font-medium text-slate-600">Project</span>
+          <span class="font-mono text-slate-900">{{ project_path }}</span>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-slate-500">Config</span>
+          <span class="font-mono text-slate-500">{{ deploy_config_path }}</span>
+        </div>
+      </div>
     </div>
-    <div class="flex flex-wrap items-center gap-2">
+
+    <!-- Primary actions -->
+    <div class="flex items-center gap-2">
       <button
-        class="rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+        onclick="document.getElementById('log-output').innerHTML = '';"
+        class="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        hx-get="/servers/status"
+        hx-target="#servers-panel"
+        hx-swap="innerHTML">
+        Refresh State
+      </button>
+      <button
+        class="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
         hx-post="/deploy"
         hx-target="#deploy-request"
         hx-swap="innerHTML">
-        Deploy
+        ▶ Deploy
       </button>
       <button
-        class="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+        class="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50"
         hx-post="/deploy/abort"
         hx-target="#deploy-request"
         hx-swap="innerHTML">
@@ -28,31 +50,71 @@
     </div>
   </div>
 
-  <div id="deploy-request" class="min-h-6 text-sm"></div>
+  <div id="deploy-request" class="min-h-[1.25rem] text-sm"></div>
 
-  <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_26rem]">
-    <section class="overflow-hidden rounded-md border border-slate-800 bg-slate-950">
-      <div class="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">Deploy Log</div>
+  <!-- Read-only config summary -->
+  {% if !service.is_empty() || !image.is_empty() %}
+  <div class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+    <div>
+      <div class="text-[10px] font-semibold uppercase tracking-[0.5px] text-slate-500">Service</div>
+      <div class="mt-0.5 font-semibold text-slate-900">{% if !service.is_empty() %}{{ service }}{% else %}—{% endif %}</div>
+    </div>
+    <div>
+      <div class="text-[10px] font-semibold uppercase tracking-[0.5px] text-slate-500">Image</div>
+      <div class="mt-0.5 font-mono text-xs text-slate-700 truncate" title="{{ image }}">{% if !image.is_empty() %}{{ image }}{% else %}—{% endif %}</div>
+    </div>
+    <div>
+      <div class="text-[10px] font-semibold uppercase tracking-[0.5px] text-slate-500">Configured</div>
+      <div class="mt-0.5 text-slate-700">{{ servers_summary }}</div>
+    </div>
+    <div>
+      <div class="text-[10px] font-semibold uppercase tracking-[0.5px] text-slate-500">Accessories</div>
+      <div class="mt-0.5 text-slate-700">{{ accessories_summary }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Current State - prominent read-only view -->
+  <div>
+    <div class="mb-2 flex items-center justify-between">
+      <div>
+        <span class="text-sm font-semibold text-slate-800">Current Application State</span>
+        <span class="ml-2 text-xs text-slate-500">auto-refreshes</span>
+      </div>
+      <a href="/servers" class="text-xs font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900">View full →</a>
+    </div>
+
+    <div id="servers-panel"
+         class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+         hx-get="/servers/status"
+         hx-trigger="load, every 12s"
+         hx-swap="innerHTML">
+      <div class="animate-pulse text-sm text-slate-400">Loading server status…</div>
+    </div>
+  </div>
+
+  <!-- Live Log -->
+  <div>
+    <div class="mb-2 flex items-center justify-between">
+      <span class="text-sm font-semibold text-slate-800">Deploy Log</span>
+      <span class="text-[10px] text-slate-400">streaming live</span>
+    </div>
+    <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-inner">
+      <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-xs text-slate-500">
+        <div class="font-mono">kamal output</div>
+        <button
+          class="rounded px-2 py-0.5 text-[10px] text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          onclick="document.getElementById('log-output').innerHTML=''">Clear</button>
+      </div>
       <div
         id="log-output"
-        class="h-[34rem] overflow-y-auto px-4 py-3 font-mono text-xs leading-5"
+        class="terminal h-[320px] overflow-y-auto px-4 py-3 text-[#e2e8f0]"
         hx-ext="sse"
         sse-connect="/deploy/stream"
         sse-swap="message"
         hx-swap="beforeend scroll:#log-output:bottom"></div>
-    </section>
-
-    <aside class="space-y-3">
-      <section class="space-y-3">
-        <h2 class="text-sm font-semibold text-slate-800">Servers</h2>
-        <div
-          hx-get="/servers"
-          hx-trigger="load, every 10s"
-          hx-swap="innerHTML">
-          <div class="text-sm text-slate-500">Loading...</div>
-        </div>
-      </section>
-    </aside>
+    </div>
+    <p class="mt-1.5 text-[11px] text-slate-500">Start a deploy to see live output here. Logs from previous runs are in History.</p>
   </div>
 </section>
 {% endblock %}

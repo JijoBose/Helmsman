@@ -1,6 +1,10 @@
+pub mod activity;
 pub mod config;
+pub mod containers;
 pub mod deploy;
 pub mod history;
+pub mod logs;
+pub mod requests;
 pub mod servers;
 
 use askama::Template;
@@ -19,15 +23,25 @@ pub fn router(state: AppState) -> Router {
         .route("/deploy", get(deploy::page).post(deploy::start))
         .route("/deploy/stream", get(deploy::stream))
         .route("/deploy/abort", post(deploy::abort))
-        .route("/servers", get(servers::index))
+        .route("/servers", get(servers::page))
+        .route("/servers/status", get(servers::status_fragment))
+        .route("/containers", get(containers::page))
+        .route("/containers/status", get(containers::status_fragment))
+        .route("/logs", get(logs::page))
+        .route("/logs/stream", get(logs::stream))
+        .route("/requests", get(requests::page))
         .route("/config", get(config::page).put(config::save))
+        .route("/config/raw", get(config::raw))
+        .route("/activity", get(activity::page))
+        .route("/activity/audit", get(activity::audit_fragment))
+        .route("/activity/rollback", post(activity::rollback))
         .route("/history", get(history::list))
         .route("/history/:id", get(history::detail))
         .with_state(state)
 }
 
 async fn root() -> Redirect {
-    Redirect::to("/deploy")
+    Redirect::to("/containers")
 }
 
 pub fn render<T: Template>(template: T) -> Result<Html<String>, AppError> {

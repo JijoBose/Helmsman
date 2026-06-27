@@ -1,0 +1,122 @@
+{% extends "layout.html" %}
+
+{% block title %}Requests - Helmsman{% endblock %}
+
+{% block content %}
+<section class="space-y-5">
+  <div class="flex items-center gap-3 text-sm">
+    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
+      <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+    </div>
+    <span class="text-slate-500">HTTP traffic via proxy</span>
+  </div>
+
+  <div class="flex items-center border-b border-slate-200 text-sm">
+    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
+    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
+    <a href="/requests" class="tab px-4 py-2 font-medium tab-active">Requests <span class="ml-1 rounded bg-blue-100 px-1.5 py-px text-xs text-blue-700">{{ count }}</span></a>
+    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
+    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
+  </div>
+
+  <!-- Request stats cards matching screenshots (clickable filters) -->
+  <div class="grid grid-cols-3 md:grid-cols-6 gap-3">
+    <div class="metric-card rounded-xl p-3 cursor-pointer hover:bg-slate-50" onclick="filterRequests(null)" title="Show all">
+      <div class="text-[10px] uppercase tracking-widest section-header">REQUESTS</div>
+      <div class="text-2xl font-semibold mt-0.5">{{ count }}</div>
+    </div>
+    <div class="metric-card rounded-xl p-3">
+      <div class="text-[10px] uppercase tracking-widest section-header">REQS/S</div>
+      <div class="text-2xl font-semibold mt-0.5">{{ reqs_per_sec }}</div>
+    </div>
+    <div onclick="filterRequests('2')" class="metric-card rounded-xl p-3 bg-emerald-50 border-emerald-100 cursor-pointer hover:ring-1 hover:ring-emerald-300 status-filter" data-prefix="2" title="Filter 2xx">
+      <div class="text-[10px] uppercase tracking-widest text-emerald-600">2XX</div>
+      <div class="text-2xl font-semibold mt-0.5 text-emerald-700">{{ ok_2xx }}</div>
+    </div>
+    <div onclick="filterRequests('3')" class="metric-card rounded-xl p-3 cursor-pointer hover:ring-1 hover:ring-sky-300 status-filter" data-prefix="3" title="Filter 3xx">
+      <div class="text-[10px] uppercase tracking-widest section-header">3XX</div>
+      <div class="text-2xl font-semibold mt-0.5">{{ three_xx }}</div>
+    </div>
+    <div onclick="filterRequests('4')" class="metric-card rounded-xl p-3 cursor-pointer hover:ring-1 hover:ring-amber-300 status-filter" data-prefix="4" title="Filter 4xx">
+      <div class="text-[10px] uppercase tracking-widest section-header">4XX</div>
+      <div class="text-2xl font-semibold mt-0.5 text-amber-600">{{ four_xx }}</div>
+    </div>
+    <div onclick="filterRequests('5')" class="metric-card rounded-xl p-3 cursor-pointer hover:ring-1 hover:ring-red-300 status-filter" data-prefix="5" title="Filter 5xx">
+      <div class="text-[10px] uppercase tracking-widest section-header">5XX</div>
+      <div class="text-2xl font-semibold mt-0.5 text-red-600">{{ five_xx }}</div>
+    </div>
+  </div>
+
+  <div class="content-card rounded-xl overflow-hidden">
+    <div class="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 flex items-center justify-between">
+      <div>Recent requests (from kamal proxy logs)</div>
+      <button class="text-xs hover:text-slate-900" hx-get="/requests" hx-target="body" hx-swap="outerHTML">Refresh</button>
+    </div>
+
+    {% if entries.is_empty() %}
+    <div class="p-6 text-sm text-slate-500">No recent proxy request lines found. Proxy logs may be empty or not enabled for access logs.</div>
+    {% else %}
+    <div class="overflow-x-auto">
+      <table id="requests-table" class="w-full min-w-[720px] text-sm table-fixed">
+        <thead>
+          <tr class="text-xs uppercase text-slate-500 border-b border-slate-200">
+            <th class="w-36 px-3 py-2 text-left">Time</th>
+            <th class="w-20 px-3 py-2 text-left">Method</th>
+            <th class="w-16 px-3 py-2 text-left">Status</th>
+            <th class="w-48 px-3 py-2 text-left">Host</th>
+            <th class="px-3 py-2 text-left">Path</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 font-mono text-xs">
+          {% for e in entries %}
+          <tr class="hover:bg-slate-50" data-status="{{ e.status }}">
+            <td class="px-3 py-1.5 text-slate-500 truncate">{{ e.time }}</td>
+            <td class="px-3 py-1.5 font-semibold">{{ e.method }}</td>
+            <td class="px-3 py-1.5">
+              {% if e.status.starts_with("2") %}<span class="text-emerald-600">● {{ e.status }}</span>
+              {% else if e.status.starts_with("3") %}<span class="text-sky-600">● {{ e.status }}</span>
+              {% else if e.status.starts_with("4") %}<span class="text-amber-600">● {{ e.status }}</span>
+              {% else if e.status.starts_with("5") %}<span class="text-red-600">● {{ e.status }}</span>
+              {% else %}{{ e.status }}{% endif %}
+            </td>
+            <td class="px-3 py-1.5 text-slate-600 truncate">{{ e.host }}</td>
+            <td class="px-3 py-1.5 truncate text-slate-700" title="{{ e.path }}">{{ e.path }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <p class="text-xs text-slate-500">Requests are approximated from proxy logs. For full observability, integrate your app metrics. Click status cards to filter the table.</p>
+</section>
+
+<script>
+let activeFilter = null;
+
+function filterRequests(prefix) {
+  const rows = document.querySelectorAll('#requests-table tbody tr');
+  const cards = document.querySelectorAll('.status-filter');
+
+  cards.forEach(c => c.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500'));
+
+  if (prefix === null || activeFilter === prefix) {
+    // clear filter
+    rows.forEach(r => r.style.display = '');
+    activeFilter = null;
+    return;
+  }
+
+  activeFilter = prefix;
+  // highlight the clicked card
+  const target = Array.from(cards).find(c => c.dataset.prefix === prefix);
+  if (target) target.classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+
+  rows.forEach(row => {
+    const st = row.dataset.status || '';
+    row.style.display = st.startsWith(prefix) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,40 @@
+{% if let Some(message) = error %}
+<div class="p-4 text-sm text-red-400 whitespace-pre-wrap">{{ message }}</div>
+{% else %}
+  {% if empty %}
+  <div class="p-8 text-center text-sm text-slate-400">
+    No running containers found. Deploy or start the app.
+  </div>
+  {% else %}
+  <table class="w-full min-w-[680px] text-sm table-fixed">
+    <thead>
+      <tr class="border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-500">
+        <th class="w-20 px-2 py-2 text-left sm:w-24 sm:px-3">Status</th>
+        <th class="w-60 px-2 py-2 text-left sm:w-72 sm:px-3">Container</th>
+        <th class="min-w-[160px] px-2 py-2 text-left sm:min-w-[200px] sm:px-3">Image</th>
+        <th class="w-24 px-2 py-2 text-left sm:w-28 sm:px-3">Running For</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for container in containers %}
+      <tr class="hover:bg-slate-50">
+        <td class="px-2 py-2 sm:px-3 sm:py-2.5">
+          <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium {% if container.status_label == "Running" %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            <span class="inline-block h-1.5 w-1.5 rounded-full {% if container.status_label == "Running" %}bg-emerald-500{% else %}bg-slate-400{% endif %}"></span>
+            {{ container.status_label }}
+          </span>
+        </td>
+        <td class="px-2 py-2 sm:px-3 sm:py-2.5">
+          <div class="w-full font-medium text-slate-900 truncate" title="{{ container.name }}">{{ container.name }}</div>
+          <div class="text-[10px] text-slate-500">{{ container.role }}</div>
+        </td>
+        <td class="px-2 py-2 sm:px-3 sm:py-2.5">
+          <div class="w-full font-mono text-xs text-slate-600 truncate" title="{{ container.image }}">{{ container.image }}</div>
+        </td>
+        <td class="px-2 py-2 sm:px-3 sm:py-2.5 text-xs text-slate-500 whitespace-nowrap">{{ container.running_for }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+{% endif %}
