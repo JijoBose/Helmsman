@@ -2,6 +2,9 @@
 
 Helmsman is a local browser UI for managing Kamal deploys from a project directory.
 
+Download the binary from **[here](https://github.com/JijoBose/Helmsman/releases/tag/v1.0.0)** and run the binary from the root of the project you want to manage. For example, for a Rails app that deploys with Kamal:
+
+
 ## Build The Binary
 
 From the Helmsman source directory:
