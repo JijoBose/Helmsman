@@ -1,32 +1,49 @@
 {% extends "layout.html" %}
 
-{% block title %}Deploy Run - Helmsman{% endblock %}
+{% block title %}Run #{{ run.id }} - Helmsman{% endblock %}
 
 {% block content %}
 <section class="space-y-5">
   <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-    <div>
-      <h1 class="text-2xl font-semibold tracking-normal">Run #{{ run.id }}</h1>
-      <p class="mt-1 text-sm text-slate-600">{{ run.project_path }}</p>
+    <div class="min-w-0">
+      <nav class="text-xs text-slate-500" aria-label="Breadcrumb">
+        <a href="/history" class="hover:text-slate-900">History</a>
+        <span class="text-slate-300" aria-hidden="true">/</span>
+        <span class="text-slate-600">Run #{{ run.id }}</span>
+      </nav>
+      <h1 class="page-title mt-1">Run #{{ run.id }}</h1>
+      <p class="mt-1 truncate text-sm text-slate-600" title="{{ run.project_path }}">{{ run.project_path }}</p>
     </div>
-    <a href="/history" class="text-sm font-medium text-slate-700 underline">Back to history</a>
+    <a href="/history" class="btn btn-secondary btn-sm shrink-0">Back to history</a>
   </div>
 
-  <dl class="grid gap-3 rounded-md border border-slate-200 bg-white p-4 text-sm sm:grid-cols-3">
+  <dl class="content-card grid gap-4 p-4 text-sm sm:grid-cols-3">
     <div>
-      <dt class="font-medium text-slate-500">Started</dt>
-      <dd class="mt-1 text-slate-950">{{ run.started_at }}</dd>
+      <dt class="eyebrow">Started</dt>
+      <dd class="mt-1 text-slate-950 tabular-nums">{{ run.started_at }}</dd>
     </div>
     <div>
-      <dt class="font-medium text-slate-500">Exit code</dt>
-      <dd class="mt-1 text-slate-950">{{ run.exit_code }}</dd>
+      <dt class="eyebrow">Result</dt>
+      <dd class="mt-1">
+        {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
+        {% else if run.exit_code == "running" %}<span class="pill pill-neutral">Running</span>
+        {% else %}<span class="pill pill-danger">Failed · exit {{ run.exit_code }}</span>{% endif %}
+      </dd>
     </div>
     <div>
-      <dt class="font-medium text-slate-500">Duration</dt>
-      <dd class="mt-1 text-slate-950">{{ run.duration }}</dd>
+      <dt class="eyebrow">Duration</dt>
+      <dd class="mt-1 text-slate-950 tabular-nums">{{ run.duration }}</dd>
     </div>
   </dl>
 
-  <pre class="max-h-[42rem] overflow-auto rounded-xl border border-slate-200 bg-slate-900 p-4 font-mono text-xs leading-5 text-slate-100">{{ run.log }}</pre>
+  <div class="content-card overflow-hidden">
+    <div class="terminal-bar">
+      <span class="inline-flex items-center gap-1.5">
+        <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-terminal"/></svg>
+        <span class="mono">run log</span>
+      </span>
+    </div>
+    <pre class="terminal max-h-[42rem] overflow-auto p-4 mono text-xs" role="log" aria-label="Run #{{ run.id }} log">{{ run.log }}</pre>
+  </div>
 </section>
 {% endblock %}

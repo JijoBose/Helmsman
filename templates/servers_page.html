@@ -4,32 +4,29 @@
 
 {% block content %}
 <section class="space-y-5">
-  <div class="flex items-center gap-3 text-sm">
-    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
-      <span class="font-medium">servers</span>
+  <div>
+    <h1 class="page-title">Servers</h1>
+    <p class="mt-1 caption">Running containers grouped by host.</p>
+  </div>
+
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="seg" role="group" aria-label="Container view">
+      <a href="/containers" class="seg-btn">Table</a>
+      <a href="/servers" class="seg-btn" aria-current="page">By host</a>
     </div>
-  </div>
-
-  <div class="flex items-center border-b border-slate-200 text-sm">
-    <a href="/containers" class="tab px-4 py-2 font-medium tab-active">Containers</a>
-    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
-    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests</a>
-    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
-    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
-  </div>
-
-  <div class="flex items-center justify-between">
-    <div></div>
     <button
-      class="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      class="btn btn-secondary btn-sm"
       hx-get="/servers/status"
       hx-target="#servers-content"
-      hx-swap="innerHTML">
-      ↻ Refresh
+      hx-swap="innerHTML"
+      hx-disabled-elt="this">
+      <span class="spinner htmx-indicator" aria-hidden="true"></span>
+      <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+      Refresh
     </button>
   </div>
 
-  <div id="servers-content" class="content-card rounded-xl p-1">
+  <div id="servers-content" class="swap-fade">
     {% include "servers.html" %}
   </div>
 </section>

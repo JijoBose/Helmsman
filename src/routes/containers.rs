@@ -22,7 +22,6 @@ struct ContainersTemplate {
     running_containers: usize,
     containers: Vec<ContainerStatus>,
     metrics: Vec<MetricCard>,
-    request_count: String,
 }
 
 #[derive(Template)]
@@ -64,7 +63,6 @@ pub async fn page(State(state): State<AppState>) -> Result<Html<String>, AppErro
         running_containers,
         containers: containers.clone(),
         metrics,
-        request_count: "".to_string(),
     })
 }
 
@@ -176,9 +174,10 @@ fn parse_metrics(output: &str) -> Vec<MetricCard> {
     }
 
     vec![
-        MetricCard { icon: "🖥", label: "CPU", value: cpu, sub: "cores".into() },
-        MetricCard { icon: "📈", label: "RAM", value: ram, sub: "".into() },
-        MetricCard { icon: "💾", label: "Storage", value: storage, sub: "".into() },
-        MetricCard { icon: "⚡", label: "Load", value: load, sub: "".into() },
+        // `icon` is an inline-SVG sprite id (see templates/icons.html), rendered via <use href="#i-{icon}">.
+        MetricCard { icon: "cpu", label: "CPU", value: cpu, sub: "cores".into() },
+        MetricCard { icon: "memory-stick", label: "RAM", value: ram, sub: "".into() },
+        MetricCard { icon: "hard-drive", label: "Storage", value: storage, sub: "".into() },
+        MetricCard { icon: "activity", label: "Load", value: load, sub: "".into() },
     ]
 }

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fs};
+use std::{collections::BTreeMap, fs, time::SystemTime};
 
 use askama::Template;
 use axum::{Form, extract::State, response::Html};
@@ -192,11 +192,32 @@ impl Default for ConfigForm {
 
 fn read_raw(path: &std::path::Path) -> (String, String) {
     let contents = fs::read_to_string(path).unwrap_or_default();
-    let modified = match fs::metadata(path) {
-        Ok(m) => m.modified().map(|t| format!("{:?}", t)).unwrap_or_default(),
-        Err(_) => String::new(),
-    };
+    let modified = fs::metadata(path)
+        .and_then(|m| m.modified())
+        .map(humanize_since)
+        .unwrap_or_default();
     (contents, modified)
+}
+
+/// Render a file mtime as a compact relative time (std-only, no date dependency).
+fn humanize_since(time: SystemTime) -> String {
+    let secs = match SystemTime::now().duration_since(time) {
+        Ok(d) => d.as_secs(),
+        Err(_) => return "just now".to_string(),
+    };
+    let plural = |n: u64| if n == 1 { "" } else { "s" };
+    if secs < 45 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        let m = (secs + 30) / 60;
+        format!("{m} minute{} ago", plural(m))
+    } else if secs < 86_400 {
+        let h = secs / 3600;
+        format!("{h} hour{} ago", plural(h))
+    } else {
+        let d = secs / 86_400;
+        format!("{d} day{} ago", plural(d))
+    }
 }
 
 fn read_config_form(path: &std::path::Path) -> Result<ConfigForm, AppError> {

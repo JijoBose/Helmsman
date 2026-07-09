@@ -4,119 +4,154 @@
 
 {% block content %}
 <section class="space-y-5">
-  <div class="flex items-center gap-3 text-sm">
-    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
-      <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h1 class="page-title">Requests</h1>
+      <div class="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+        <span class="context-chip">
+          <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+        </span>
+        <span class="text-slate-500">HTTP traffic via proxy</span>
+      </div>
     </div>
-    <span class="text-slate-500">HTTP traffic via proxy</span>
+    <button class="btn btn-secondary btn-sm shrink-0"
+      hx-get="/requests" hx-target="#requests-content" hx-select="#requests-content" hx-swap="outerHTML" hx-disabled-elt="this">
+      <span class="spinner htmx-indicator" aria-hidden="true"></span>
+      <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+      Refresh
+    </button>
   </div>
 
-  <div class="flex items-center border-b border-slate-200 text-sm">
-    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
-    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
-    <a href="/requests" class="tab px-4 py-2 font-medium tab-active">Requests <span class="ml-1 rounded bg-blue-100 px-1.5 py-px text-xs text-blue-700">{{ count }}</span></a>
-    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
-    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
+  <div id="requests-content" class="space-y-5">
+    <!-- Request stats cards (clickable filters) -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50"
+        aria-label="Show all requests" onclick="filterRequests(null)">
+        <div class="eyebrow">Requests</div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-slate-900">{{ count }}</div>
+        <div class="caption mt-0.5">recent proxy lines</div>
+      </button>
+      <div class="metric-card p-4" title="Rough estimate from proxy log volume">
+        <div class="eyebrow">Reqs/s (approx)</div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-slate-900">{{ reqs_per_sec }}</div>
+      </div>
+      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
+        data-prefix="2" aria-pressed="false" aria-label="Filter to 2xx responses" onclick="filterRequests('2')">
+        <div class="eyebrow text-emerald-700">2XX</div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-emerald-700">{{ ok_2xx }}</div>
+      </button>
+      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
+        data-prefix="3" aria-pressed="false" aria-label="Filter to 3xx responses" onclick="filterRequests('3')">
+        <div class="eyebrow text-slate-600">3XX</div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-slate-700">{{ three_xx }}</div>
+      </button>
+      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
+        data-prefix="4" aria-pressed="false" aria-label="Filter to 4xx responses" onclick="filterRequests('4')">
+        <div class="eyebrow text-amber-700">4XX</div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-amber-700">{{ four_xx }}</div>
+      </button>
+      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
+        data-prefix="5" aria-pressed="false" aria-label="Filter to 5xx responses" onclick="filterRequests('5')">
+        <div class="eyebrow text-red-700">5XX</div>
+        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-red-700">{{ five_xx }}</div>
+      </button>
+    </div>
+    <span id="filter-status" class="sr-only" aria-live="polite"></span>
+
+    <div class="content-card overflow-hidden">
+      <div class="border-b border-slate-200 bg-slate-50 px-4 py-2 caption">
+        Latest lines from the kamal proxy access log (not a fixed time window)
+      </div>
+
+      {% if entries.is_empty() %}
+      <div class="px-6 py-12 text-center">
+        <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
+          <svg class="icon h-5 w-5"><use href="#i-globe"/></svg>
+        </div>
+        <h2 class="section-title text-slate-700">No recent proxy requests</h2>
+        <p class="mt-1 caption">Proxy logs may be empty, or access logging isn't enabled for the proxy.</p>
+      </div>
+      {% else %}
+      <div class="overflow-x-auto">
+        <table id="requests-table" class="w-full min-w-[720px] text-sm table-fixed">
+          <thead>
+            <tr class="eyebrow border-b border-slate-200 bg-slate-50 text-left">
+              <th class="w-36 px-4 py-2.5 font-semibold">Time</th>
+              <th class="w-20 px-4 py-2.5 font-semibold">Method</th>
+              <th class="w-20 px-4 py-2.5 font-semibold">Status</th>
+              <th class="w-48 px-4 py-2.5 font-semibold">Host</th>
+              <th class="px-4 py-2.5 font-semibold">Path</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 mono text-xs">
+            {% for e in entries %}
+            <tr class="hover:bg-slate-50" data-status="{{ e.status }}">
+              <td class="px-4 py-1.5 text-slate-500 tabular-nums truncate">{{ e.time }}</td>
+              <td class="px-4 py-1.5 font-semibold text-slate-700">{{ e.method }}</td>
+              <td class="px-4 py-1.5 tabular-nums">
+                {% if e.status.starts_with("2") %}<span class="inline-flex items-center gap-1.5 text-emerald-700"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
+                {% else if e.status.starts_with("3") %}<span class="inline-flex items-center gap-1.5 text-slate-500"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
+                {% else if e.status.starts_with("4") %}<span class="inline-flex items-center gap-1.5 text-amber-700"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
+                {% else if e.status.starts_with("5") %}<span class="inline-flex items-center gap-1.5 text-red-700"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
+                {% else %}<span class="text-slate-600">{{ e.status }}</span>{% endif %}
+              </td>
+              <td class="px-4 py-1.5 text-slate-600 truncate">{{ e.host }}</td>
+              <td class="px-4 py-1.5 truncate text-slate-700" title="{{ e.path }}">{{ e.path }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
   </div>
 
-  <!-- Request stats cards matching screenshots (clickable filters) -->
-  <div class="grid grid-cols-3 md:grid-cols-6 gap-3">
-    <div class="metric-card rounded-xl p-3 cursor-pointer hover:bg-slate-50" onclick="filterRequests(null)" title="Show all">
-      <div class="text-[10px] uppercase tracking-widest section-header">REQUESTS</div>
-      <div class="text-2xl font-semibold mt-0.5">{{ count }}</div>
-    </div>
-    <div class="metric-card rounded-xl p-3">
-      <div class="text-[10px] uppercase tracking-widest section-header">REQS/S</div>
-      <div class="text-2xl font-semibold mt-0.5">{{ reqs_per_sec }}</div>
-    </div>
-    <div onclick="filterRequests('2')" class="metric-card rounded-xl p-3 bg-emerald-50 border-emerald-100 cursor-pointer hover:ring-1 hover:ring-emerald-300 status-filter" data-prefix="2" title="Filter 2xx">
-      <div class="text-[10px] uppercase tracking-widest text-emerald-600">2XX</div>
-      <div class="text-2xl font-semibold mt-0.5 text-emerald-700">{{ ok_2xx }}</div>
-    </div>
-    <div onclick="filterRequests('3')" class="metric-card rounded-xl p-3 cursor-pointer hover:ring-1 hover:ring-sky-300 status-filter" data-prefix="3" title="Filter 3xx">
-      <div class="text-[10px] uppercase tracking-widest section-header">3XX</div>
-      <div class="text-2xl font-semibold mt-0.5">{{ three_xx }}</div>
-    </div>
-    <div onclick="filterRequests('4')" class="metric-card rounded-xl p-3 cursor-pointer hover:ring-1 hover:ring-amber-300 status-filter" data-prefix="4" title="Filter 4xx">
-      <div class="text-[10px] uppercase tracking-widest section-header">4XX</div>
-      <div class="text-2xl font-semibold mt-0.5 text-amber-600">{{ four_xx }}</div>
-    </div>
-    <div onclick="filterRequests('5')" class="metric-card rounded-xl p-3 cursor-pointer hover:ring-1 hover:ring-red-300 status-filter" data-prefix="5" title="Filter 5xx">
-      <div class="text-[10px] uppercase tracking-widest section-header">5XX</div>
-      <div class="text-2xl font-semibold mt-0.5 text-red-600">{{ five_xx }}</div>
-    </div>
-  </div>
-
-  <div class="content-card rounded-xl overflow-hidden">
-    <div class="border-b border-slate-200 px-4 py-2 text-xs text-slate-500 flex items-center justify-between">
-      <div>Recent requests (from kamal proxy logs)</div>
-      <button class="text-xs hover:text-slate-900" hx-get="/requests" hx-target="body" hx-swap="outerHTML">Refresh</button>
-    </div>
-
-    {% if entries.is_empty() %}
-    <div class="p-6 text-sm text-slate-500">No recent proxy request lines found. Proxy logs may be empty or not enabled for access logs.</div>
-    {% else %}
-    <div class="overflow-x-auto">
-      <table id="requests-table" class="w-full min-w-[720px] text-sm table-fixed">
-        <thead>
-          <tr class="text-xs uppercase text-slate-500 border-b border-slate-200">
-            <th class="w-36 px-3 py-2 text-left">Time</th>
-            <th class="w-20 px-3 py-2 text-left">Method</th>
-            <th class="w-16 px-3 py-2 text-left">Status</th>
-            <th class="w-48 px-3 py-2 text-left">Host</th>
-            <th class="px-3 py-2 text-left">Path</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100 font-mono text-xs">
-          {% for e in entries %}
-          <tr class="hover:bg-slate-50" data-status="{{ e.status }}">
-            <td class="px-3 py-1.5 text-slate-500 truncate">{{ e.time }}</td>
-            <td class="px-3 py-1.5 font-semibold">{{ e.method }}</td>
-            <td class="px-3 py-1.5">
-              {% if e.status.starts_with("2") %}<span class="text-emerald-600">● {{ e.status }}</span>
-              {% else if e.status.starts_with("3") %}<span class="text-sky-600">● {{ e.status }}</span>
-              {% else if e.status.starts_with("4") %}<span class="text-amber-600">● {{ e.status }}</span>
-              {% else if e.status.starts_with("5") %}<span class="text-red-600">● {{ e.status }}</span>
-              {% else %}{{ e.status }}{% endif %}
-            </td>
-            <td class="px-3 py-1.5 text-slate-600 truncate">{{ e.host }}</td>
-            <td class="px-3 py-1.5 truncate text-slate-700" title="{{ e.path }}">{{ e.path }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
-  </div>
-
-  <p class="text-xs text-slate-500">Requests are approximated from proxy logs. For full observability, integrate your app metrics. Click status cards to filter the table.</p>
+  <p class="caption">Requests are approximated from proxy logs. For full observability, integrate your app metrics. Click a status card to filter the table.</p>
 </section>
 
 <script>
 let activeFilter = null;
 
-function filterRequests(prefix) {
+function renderFilter() {
   const rows = document.querySelectorAll('#requests-table tbody tr');
   const cards = document.querySelectorAll('.status-filter');
+  const status = document.getElementById('filter-status');
 
-  cards.forEach(c => c.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-500'));
+  cards.forEach(c => {
+    c.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-600');
+    c.setAttribute('aria-pressed', 'false');
+  });
 
-  if (prefix === null || activeFilter === prefix) {
-    // clear filter
+  if (!activeFilter) {
     rows.forEach(r => r.style.display = '');
-    activeFilter = null;
+    if (status) status.textContent = 'Showing all requests.';
     return;
   }
 
-  activeFilter = prefix;
-  // highlight the clicked card
-  const target = Array.from(cards).find(c => c.dataset.prefix === prefix);
-  if (target) target.classList.add('ring-2', 'ring-offset-2', 'ring-blue-500');
+  const target = Array.from(cards).find(c => c.dataset.prefix === activeFilter);
+  if (target) {
+    target.classList.add('ring-2', 'ring-offset-2', 'ring-blue-600');
+    target.setAttribute('aria-pressed', 'true');
+  }
 
+  let shown = 0;
   rows.forEach(row => {
     const st = row.dataset.status || '';
-    row.style.display = st.startsWith(prefix) ? '' : 'none';
+    const match = st.startsWith(activeFilter);
+    row.style.display = match ? '' : 'none';
+    if (match) shown++;
   });
+  if (status) status.textContent = 'Showing ' + shown + ' ' + activeFilter + 'xx requests.';
 }
+
+function filterRequests(prefix) {
+  activeFilter = (prefix === null || activeFilter === prefix) ? null : prefix;
+  renderFilter();
+}
+
+// After the Refresh fragment swap, re-apply the active filter so it doesn't silently reset.
+document.body.addEventListener('htmx:afterSwap', function (e) {
+  if (e.target && e.target.id === 'requests-content') renderFilter();
+});
 </script>
 {% endblock %}

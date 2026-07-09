@@ -4,76 +4,101 @@
 
 {% block content %}
 <section class="space-y-5">
-  <div class="flex items-center gap-3 text-sm">
-    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
-      <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+  <div>
+    <h1 class="page-title">Logs</h1>
+    <div class="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+      <span class="context-chip">
+        <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
+      </span>
+      <span class="text-slate-500">Live container logs</span>
     </div>
-    <span class="text-slate-500">Live container logs</span>
   </div>
 
-  <!-- Tab bar -->
-  <div class="flex items-center border-b border-slate-200 text-sm">
-    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
-    <a href="/logs" class="tab px-4 py-2 font-medium tab-active">Logs</a>
-    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests</a>
-    <a href="/config" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Config</a>
-    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
-  </div>
-
-  <div class="flex items-center justify-between">
-    <div class="flex items-center gap-2">
-      <button
-        class="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
-        onclick="startLiveLogs()">
-        ▶ Live
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <button id="live-btn" class="btn btn-primary" onclick="toggleLiveLogs()" aria-pressed="false">
+        <svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-play"/></svg>
+        <span>Live</span>
       </button>
       <button
-        class="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+        class="btn btn-secondary"
         hx-get="/logs"
         hx-target="#log-output"
-        hx-swap="innerHTML">
-        Reload recent
+        hx-select="#log-output"
+        hx-swap="outerHTML"
+        hx-disabled-elt="this"
+        title="Replace the terminal with the most recent captured logs">
+        <span class="spinner htmx-indicator" aria-hidden="true"></span>
+        <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-rotate-ccw"/></svg>
+        Load last output
       </button>
-      <button onclick="document.getElementById('log-output').innerHTML=''" class="text-xs text-slate-500 hover:text-slate-700 px-2">Clear</button>
-      <span id="live-indicator" class="hidden text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">LIVE</span>
+      <button type="button" class="icon-btn" aria-label="Clear log"
+        onclick="document.getElementById('log-output').innerHTML=''">
+        <svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-x"/></svg>
+      </button>
+      <span id="live-indicator" class="pill pill-neutral" role="status" aria-live="polite">Idle</span>
     </div>
-    <div class="text-xs text-slate-500">From <span class="font-medium">kamal app logs</span></div>
+    <div class="caption">From <span class="mono">kamal app logs</span></div>
   </div>
 
-  <div class="content-card rounded-xl overflow-hidden">
-    <div class="flex items-center justify-between border-b border-slate-200 bg-slate-900 px-3 py-1.5 text-xs text-slate-300">
-      <div class="mono">container logs</div>
-      <div class="text-[10px]">Click Live to stream new lines</div>
+  <div class="content-card overflow-hidden">
+    <div class="terminal-bar">
+      <span class="inline-flex items-center gap-1.5">
+        <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-terminal"/></svg>
+        <span class="mono">container logs</span>
+      </span>
     </div>
-    <div id="log-output" class="terminal h-[520px] overflow-y-auto p-3 text-[#cbd5e1] text-xs leading-relaxed">
+    <div id="log-output" class="terminal h-[clamp(360px,60vh,760px)] overflow-y-auto p-3 text-xs"
+      role="log" aria-label="Container logs" aria-live="off">
       {% for line in lines %}<pre class="log-line">{{ line }}</pre>{% endfor %}
     </div>
   </div>
 
-<script>
-function startLiveLogs() {
-  const out = document.getElementById('log-output');
-  const ind = document.getElementById('live-indicator');
-  ind.classList.remove('hidden');
-  ind.classList.add('inline-block');
+  <p class="caption">Tip: click <span class="font-medium text-slate-600">Live</span> to stream new lines, or <span class="font-medium text-slate-600">Load last output</span> to refetch the most recent logs.</p>
+</section>
 
-  const es = new EventSource('/logs/stream');
-  es.onmessage = function(ev) {
-    const pre = document.createElement('pre');
+<script>
+var logEs = null;
+var ICON_PLAY = '<svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-play"/></svg><span>Live</span>';
+var ICON_STOP = '<svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-square"/></svg><span>Stop</span>';
+
+function setLiveIndicator(kind, label, live) {
+  var ind = document.getElementById('live-indicator');
+  if (!ind) return;
+  ind.className = 'pill pill-' + kind + (live ? ' pill-live' : '');
+  ind.innerHTML = (live ? '<span class="pill-dot" aria-hidden="true"></span>' : '') + label;
+}
+
+function stopLiveLogs() {
+  if (logEs) { logEs.close(); logEs = null; }
+  var btn = document.getElementById('live-btn');
+  if (btn) { btn.className = 'btn btn-primary'; btn.innerHTML = ICON_PLAY; btn.setAttribute('aria-pressed', 'false'); }
+  setLiveIndicator('neutral', 'Idle', false);
+}
+
+function toggleLiveLogs() {
+  if (logEs) { stopLiveLogs(); return; }
+  var btn = document.getElementById('live-btn');
+  logEs = new EventSource('/logs/stream');
+  if (btn) { btn.className = 'btn btn-danger'; btn.innerHTML = ICON_STOP; btn.setAttribute('aria-pressed', 'true'); }
+  setLiveIndicator('success', 'LIVE', true);
+
+  logEs.onmessage = function (ev) {
+    var out = document.getElementById('log-output');
+    if (!out) return;
+    var pre = document.createElement('pre');
     pre.className = 'log-line';
     pre.textContent = ev.data;
     out.appendChild(pre);
     out.scrollTop = out.scrollHeight;
   };
-  es.onerror = function() {
-    es.close();
-    ind.classList.add('hidden');
+
+  logEs.onerror = function () {
+    if (logEs) { logEs.close(); logEs = null; }
+    var b = document.getElementById('live-btn');
+    if (b) { b.className = 'btn btn-primary'; b.innerHTML = ICON_PLAY; b.setAttribute('aria-pressed', 'false'); }
+    setLiveIndicator('warning', 'Stream ended — click Live', false);
   };
-  // Stop after some time or allow user to clear
-  setTimeout(() => { if (!es.CLOSED) { /* keep open */ } }, 300000);
 }
 </script>
-
-  <p class="text-xs text-slate-500">Tip: Click Live to stream. Use Reload recent to fetch last output.</p>
-</section>
 {% endblock %}

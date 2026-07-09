@@ -4,65 +4,84 @@
 
 {% block content %}
 <section class="space-y-5">
-  <!-- Context bar -->
-  <div class="flex items-center gap-3 text-sm">
-    <div class="flex items-center gap-2 rounded bg-slate-100 border border-slate-200 px-3 py-1 text-slate-700">
-      <span class="font-medium">deploy config</span>
+  <!-- Header -->
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
+      <h1 class="page-title">Config</h1>
+      <div class="mt-1.5 min-w-0 space-y-0.5">
+        <div class="truncate text-xs text-slate-500" title="{{ project_path }}">{{ project_path }}</div>
+        <div class="mono truncate text-xs text-slate-500" title="{{ deploy_config_path }}">{{ deploy_config_path }}</div>
+        {% if !last_modified.is_empty() %}<div class="caption">Modified {{ last_modified }}</div>{% endif %}
+      </div>
     </div>
-  </div>
-
-  <!-- Tab bar -->
-  <div class="flex items-center border-b border-slate-200 text-sm">
-    <a href="/containers" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Containers</a>
-    <a href="/logs" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Logs</a>
-    <a href="/requests" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Requests</a>
-    <a href="/config" class="tab px-4 py-2 font-medium tab-active">Config</a>
-    <a href="/activity" class="tab px-4 py-2 text-slate-500 hover:text-slate-900">Activity</a>
-  </div>
-
-  <div class="flex items-center justify-between mb-1">
-    <div>
-      <div class="text-xs text-slate-500">{{ project_path }}</div>
-      <div class="font-mono text-xs text-slate-500">{{ deploy_config_path }}</div>
-      <div class="text-[11px] text-slate-500">{% if !last_modified.is_empty() %}Modified {{ last_modified }}{% endif %}</div>
-    </div>
-    <div class="flex items-center gap-2">
-      <a href="/config/raw" class="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-100">Raw</a>
-      <button onclick="window.open('file://{{ deploy_config_path }}', '_blank')" class="rounded border border-slate-300 bg-white px-3 py-1 text-xs hover:bg-slate-100">Open</button>
-    </div>
+    <button onclick="window.open('file://{{ deploy_config_path }}', '_blank')" class="btn btn-secondary btn-sm shrink-0" title="Open deploy.yml in a new browser tab">
+      <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-external-link"/></svg>
+      Open
+    </button>
   </div>
 
   {% if saved %}
-  <div class="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-700">Saved.</div>
+  <div id="saved-banner" class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status" aria-live="polite">
+    <svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-check"/></svg>
+    Saved.
+  </div>
+  <script>setTimeout(function(){ var b = document.getElementById('saved-banner'); if (b) { b.style.transition='opacity .3s ease'; b.style.opacity='0'; setTimeout(function(){ b.remove(); }, 320); } }, 4000);</script>
   {% endif %}
 
-  <!-- Raw viewer / editor like screenshot -->
-  <form class="content-card rounded-xl overflow-hidden" hx-put="/config" hx-target="body" hx-swap="outerHTML">
-    <div class="flex items-center justify-between border-b border-slate-200 bg-slate-100 px-3 py-1 text-xs">
-      <div class="text-slate-600 mono">{{ deploy_config_path }} <span class="text-slate-500"># {{ raw.lines().count() }} lines</span></div>
-      <button class="rounded bg-blue-600 px-3 py-0.5 text-xs font-semibold text-white">Save</button>
+  <div id="config-error" class="error-block hidden" role="alert"></div>
+
+  <!-- Raw viewer / editor -->
+  <form class="content-card overflow-hidden" hx-put="/config" hx-target="body" hx-swap="outerHTML"
+    hx-on::before-request="var e=document.getElementById('config-error'); if(e){ e.classList.add('hidden'); e.textContent=''; }">
+    <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+      <div class="mono truncate text-slate-600">{{ deploy_config_path }} <span class="text-slate-500"># {{ raw.lines().count() }} lines</span></div>
+      <button class="btn btn-primary btn-sm shrink-0" hx-disabled-elt="this">
+        <span class="spinner htmx-indicator" aria-hidden="true"></span>
+        <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-check"/></svg>
+        Save file
+      </button>
     </div>
-    <textarea name="raw" spellcheck="false" class="w-full bg-white p-4 font-mono text-xs leading-relaxed text-slate-800 h-[420px] focus:outline-none border-t border-slate-100" style="resize: vertical;">{{ raw }}</textarea>
+    <textarea name="raw" spellcheck="false" aria-label="Deploy configuration file (deploy.yml)"
+      placeholder="deploy.yml is empty or missing — paste your Kamal config here"
+      class="mono h-[clamp(320px,55vh,640px)] w-full border-t border-slate-100 bg-white p-4 text-xs leading-relaxed text-slate-800" style="resize: vertical;">{{ raw }}</textarea>
   </form>
 
   <details class="text-xs text-slate-600">
-    <summary class="cursor-pointer hover:text-slate-900">Advanced: structured form</summary>
-    <form class="mt-2 grid gap-4 rounded-xl border border-slate-200 bg-white p-4" hx-put="/config" hx-target="body" hx-swap="outerHTML">
-      <div class="grid md:grid-cols-2 gap-3">
-        <label class="grid gap-1 text-xs">Service<input name="service" value="{{ service }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
-        <label class="grid gap-1 text-xs">Image<input name="image" value="{{ image }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
-      </div>
-      <label class="grid gap-1 text-xs">Servers<textarea name="servers" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm" rows="3">{{ servers }}</textarea></label>
-      <div class="grid md:grid-cols-2 gap-3">
-        <label class="grid gap-1 text-xs">env.clear<textarea name="env_clear" rows="3" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm">{{ env_clear }}</textarea></label>
-        <label class="grid gap-1 text-xs">env.secret<textarea name="env_secret" rows="3" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm">{{ env_secret }}</textarea></label>
+    <summary class="cursor-pointer select-none hover:text-slate-900">Advanced: rebuild config from fields (destructive)</summary>
+    <form class="content-card mt-2 grid gap-4 p-4" hx-put="/config" hx-target="body" hx-swap="outerHTML">
+      <div class="warning-block flex items-start gap-2 !text-[11px] !leading-relaxed">
+        <svg class="icon h-4 w-4 shrink-0 translate-y-px" aria-hidden="true"><use href="#i-triangle-alert"/></svg>
+        <span>Saving here rewrites <span class="mono">deploy.yml</span> from only the fields below. Comments and any Kamal keys not shown (proxy, accessories, builder, healthcheck, volumes, ssh…) are removed. Use the raw editor above to preserve your full file.</span>
       </div>
       <div class="grid md:grid-cols-2 gap-3">
-        <label class="grid gap-1 text-xs">registry.server<input name="registry_server" value="{{ registry_server }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
-        <label class="grid gap-1 text-xs">registry.username<input name="registry_username" value="{{ registry_username }}" class="bg-white border border-slate-300 rounded px-2 py-1 font-mono text-sm"></label>
+        <label class="field-label">Service<input name="service" value="{{ service }}" class="field-input mono"></label>
+        <label class="field-label">Image<input name="image" value="{{ image }}" class="field-input mono"></label>
       </div>
-      <button class="self-start rounded bg-slate-900 text-white px-3 py-1 text-xs">Save structured</button>
+      <label class="field-label">Servers<textarea name="servers" rows="3" class="field-input mono">{{ servers }}</textarea></label>
+      <div class="grid md:grid-cols-2 gap-3">
+        <label class="field-label">env.clear<textarea name="env_clear" rows="3" class="field-input mono">{{ env_clear }}</textarea></label>
+        <label class="field-label">env.secret<textarea name="env_secret" rows="3" class="field-input mono">{{ env_secret }}</textarea></label>
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <label class="field-label">registry.server<input name="registry_server" value="{{ registry_server }}" class="field-input mono"></label>
+        <label class="field-label">registry.username<input name="registry_username" value="{{ registry_username }}" class="field-input mono"></label>
+      </div>
+      <button class="btn btn-warning btn-sm self-start"
+        hx-confirm="This replaces deploy.yml with only these fields and deletes comments plus any keys not shown. Continue?">
+        <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-triangle-alert"/></svg>
+        Overwrite file from these fields
+      </button>
     </form>
   </details>
 </section>
+
+<script>
+document.body.addEventListener('htmx:responseError', function (evt) {
+  var box = document.getElementById('config-error');
+  if (!box) return;
+  var xhr = evt.detail.xhr;
+  box.textContent = (xhr && xhr.responseText) ? xhr.responseText : ('Save failed (HTTP ' + (xhr ? xhr.status : '?') + ')');
+  box.classList.remove('hidden');
+});
+</script>
 {% endblock %}

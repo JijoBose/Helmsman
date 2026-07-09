@@ -1,35 +1,38 @@
 {% if let Some(message) = error %}
-<div class="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{{ message }}</div>
+<div class="error-block" role="alert">{{ message }}</div>
 {% else %}
   {% if empty %}
-  <div class="rounded-xl border border-slate-200 bg-white p-8 text-center">
-    <div class="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-xl">🚢</div>
-    <div class="text-sm font-medium text-slate-700">No running containers found</div>
-    <div class="mt-1 text-xs text-slate-500">Run a deploy or ensure your app is started via Kamal.</div>
+  <div class="empty-state">
+    <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
+      <svg class="icon h-5 w-5"><use href="#i-container"/></svg>
+    </div>
+    <h2 class="section-title text-slate-700">No running containers found</h2>
+    <p class="mt-1 caption">Run a deploy or ensure your app is started via Kamal.</p>
   </div>
   {% else %}
-  <div class="mb-3 flex items-center justify-between text-sm px-3 pt-2">
-    <div>
+  <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+    <div class="tabular-nums">
       <span class="font-semibold text-slate-900">{{ total_hosts }}</span>
       <span class="text-slate-500">host{% if total_hosts != 1 %}s{% endif %}</span>
-      <span class="mx-2 text-slate-300">·</span>
-      <span class="font-semibold text-emerald-600">{{ running_containers }}</span>/<span class="text-slate-500">{{ total_containers }}</span>
+      <span class="mx-2 text-slate-300" aria-hidden="true">·</span>
+      <span class="font-semibold text-emerald-700">{{ running_containers }}</span><span class="text-slate-500">/{{ total_containers }}</span>
       <span class="text-slate-500">containers running</span>
     </div>
-    <div class="text-xs text-slate-500">Live from <span class="font-medium">kamal app details</span></div>
+    <div class="caption">Live from <span class="mono">kamal app details</span></div>
   </div>
 
-  <div class="grid gap-4 md:grid-cols-2">
+  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
     {% for server in servers %}
-    <section class="status-card overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
-        <div class="min-w-0">
-          <div class="text-[10px] font-medium tracking-widest text-slate-500">HOST</div>
-          <div class="truncate font-mono text-base font-semibold text-slate-950">{{ server.hostname }}</div>
+    <section class="status-card overflow-hidden border border-slate-200 bg-white">
+      <div class="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+        <div class="flex min-w-0 items-center gap-2">
+          <svg class="icon h-4 w-4 shrink-0 text-slate-400" aria-hidden="true"><use href="#i-server"/></svg>
+          <div class="min-w-0">
+            <div class="eyebrow">Host</div>
+            <div class="truncate mono text-base font-semibold text-slate-950">{{ server.hostname }}</div>
+          </div>
         </div>
-        <div class="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-          {{ server.container_count }} container{% if server.container_count != 1 %}s{% endif %}
-        </div>
+        <span class="chip shrink-0 tabular-nums">{{ server.container_count }} container{% if server.container_count != 1 %}s{% endif %}</span>
       </div>
 
       <div class="divide-y divide-slate-100 text-sm">
@@ -37,30 +40,30 @@
         <div class="px-4 py-3">
           <div class="flex items-start gap-3">
             <div class="shrink-0 pt-0.5">
-              <span class="inline-flex items-center rounded-full px-2.5 py-px text-[11px] font-semibold ring-1 {{ container.status_class }}">{{ container.status_label }}</span>
+              <span class="pill {{ container.status_class }}"><span class="pill-dot" aria-hidden="true"></span>{{ container.status_label }}</span>
             </div>
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <span class="rounded bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-600">{{ container.role }}</span>
+                <span class="chip">{{ container.role }}</span>
                 <span class="truncate font-semibold text-slate-900">{{ container.name }}</span>
               </div>
 
               <div class="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
                 <div class="min-w-0">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-slate-500">Image</div>
-                  <div class="truncate font-mono text-slate-700" title="{{ container.image }}">{{ container.image }}</div>
+                  <div class="eyebrow">Image</div>
+                  <div class="truncate mono text-slate-700" title="{{ container.image }}">{{ container.image }}</div>
                 </div>
                 <div class="min-w-0">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-slate-500">Age</div>
-                  <div class="truncate text-slate-700" title="{{ container.status_detail }}">{{ container.running_for }}</div>
+                  <div class="eyebrow">Age</div>
+                  <div class="truncate text-slate-700 tabular-nums" title="{{ container.status_detail }}">{{ container.running_for }}</div>
                 </div>
                 <div class="min-w-0">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-slate-500">Container ID</div>
-                  <div class="truncate font-mono text-slate-700">{{ container.container_id }}</div>
+                  <div class="eyebrow">Container ID</div>
+                  <div class="truncate mono text-slate-700">{{ container.container_id }}</div>
                 </div>
                 <div class="min-w-0">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-slate-500">Ports</div>
-                  <div class="truncate font-mono text-slate-700">{{ container.ports }}</div>
+                  <div class="eyebrow">Ports</div>
+                  <div class="truncate mono text-slate-700">{{ container.ports }}</div>
                 </div>
               </div>
             </div>
