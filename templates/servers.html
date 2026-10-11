@@ -1,78 +1,24 @@
-{% if let Some(message) = error %}
-<div class="error-block" role="alert">{{ message }}</div>
-{% else %}
-  {% if empty %}
-  <div class="empty-state">
-    <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
-      <svg class="icon h-5 w-5"><use href="#i-container"/></svg>
-    </div>
-    <h2 class="section-title text-slate-700">No running containers found</h2>
-    <p class="mt-1 caption">Run a deploy or ensure your app is started via Kamal.</p>
-  </div>
-  {% else %}
-  <div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-sm">
-    <div class="tabular-nums">
-      <span class="font-semibold text-slate-900">{{ total_hosts }}</span>
-      <span class="text-slate-500">host{% if total_hosts != 1 %}s{% endif %}</span>
-      <span class="mx-2 text-slate-300" aria-hidden="true">·</span>
-      <span class="font-semibold text-emerald-700">{{ running_containers }}</span><span class="text-slate-500">/{{ total_containers }}</span>
-      <span class="text-slate-500">containers running</span>
-    </div>
-    <div class="caption">Live from <span class="mono">kamal app details</span></div>
-  </div>
-
-  <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-    {% for server in servers %}
-    <section class="status-card overflow-hidden border border-slate-200 bg-white">
-      <div class="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
-        <div class="flex min-w-0 items-center gap-2">
-          <svg class="icon h-4 w-4 shrink-0 text-slate-400" aria-hidden="true"><use href="#i-server"/></svg>
-          <div class="min-w-0">
-            <div class="eyebrow">Host</div>
-            <div class="truncate mono text-base font-semibold text-slate-950">{{ server.hostname }}</div>
-          </div>
-        </div>
-        <span class="chip shrink-0 tabular-nums">{{ server.container_count }} container{% if server.container_count != 1 %}s{% endif %}</span>
+<div class="host-grid">
+  {% for server in servers %}
+  <section class="card host-card" data-host-card>
+    <header>
+      <div>
+        <div class="sub">Host</div>
+        <div class="name mono">{{ server.hostname }}</div>
       </div>
-
-      <div class="divide-y divide-slate-100 text-sm">
-        {% for container in server.containers %}
-        <div class="px-4 py-3">
-          <div class="flex items-start gap-3">
-            <div class="shrink-0 pt-0.5">
-              <span class="pill {{ container.status_class }}"><span class="pill-dot" aria-hidden="true"></span>{{ container.status_label }}</span>
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="chip">{{ container.role }}</span>
-                <span class="truncate font-semibold text-slate-900">{{ container.name }}</span>
-              </div>
-
-              <div class="mt-2 grid grid-cols-1 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
-                <div class="min-w-0">
-                  <div class="eyebrow">Image</div>
-                  <div class="truncate mono text-slate-700" title="{{ container.image }}">{{ container.image }}</div>
-                </div>
-                <div class="min-w-0">
-                  <div class="eyebrow">Age</div>
-                  <div class="truncate text-slate-700 tabular-nums" title="{{ container.status_detail }}">{{ container.running_for }}</div>
-                </div>
-                <div class="min-w-0">
-                  <div class="eyebrow">Container ID</div>
-                  <div class="truncate mono text-slate-700">{{ container.container_id }}</div>
-                </div>
-                <div class="min-w-0">
-                  <div class="eyebrow">Ports</div>
-                  <div class="truncate mono text-slate-700">{{ container.ports }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {% endfor %}
+      <span class="chip">{{ server.container_count }}</span>
+    </header>
+    {% for container in server.containers %}
+    <div class="container-row" data-container data-role="{{ container.role }}" data-search="{{ container.name }} {{ container.role }} {{ container.host }} {{ container.status_label }} {{ container.image }}">
+      <div class="cluster">
+        <span class="pill {{ container.status_class }}"><span class="pill-dot" aria-hidden="true"></span>{{ container.status_label }}</span>
+        <span class="chip">{{ container.role }}</span>
       </div>
-    </section>
+      <div class="name truncate" title="{{ container.name }}">{{ container.name }}</div>
+      <div class="sub" title="{{ container.status_detail }}">{{ container.running_for }} · {{ container.ports }} · {{ container.container_id }}</div>
+      <div class="mono truncate sub" title="{{ container.image }}">{{ container.image }}</div>
+    </div>
     {% endfor %}
-  </div>
-  {% endif %}
-{% endif %}
+  </section>
+  {% endfor %}
+</div>

@@ -1,6 +1,6 @@
 # Helmsman
 
-Helmsman is a local browser UI for managing Kamal deploys from a project directory.
+Helmsman is a local, view-only browser UI for a Kamal project. It shows containers, logs, proxy traffic, the audit log, and `deploy.yml`. It does not deploy, roll back, reboot, or edit the config.
 
 Download the binary from **[here](https://github.com/JijoBose/Helmsman/releases/tag/v1.0.0)** and run the binary from the root of the project you want to manage. For example, for a Rails app that deploys with Kamal:
 
@@ -68,9 +68,22 @@ http://127.0.0.1:3000
 
 ## Runtime Notes
 
-- `kamal deploy` and `kamal app details` are run from the project directory where you started Helmsman.
-- The config editor reads and writes the discovered `deploy.yml`.
-- Deploy history is stored in `helmsman.sqlite` in that project directory.
+Helmsman only runs these Kamal commands. Each one ends with `--skip-hooks`:
+
+- `kamal app details --skip-hooks`
+- `kamal proxy details --skip-hooks`
+- `kamal accessory details <name> --skip-hooks`
+- `kamal app logs --lines N --skip-hooks`
+- `kamal proxy logs --lines N --skip-hooks`
+- `kamal audit --skip-hooks`
+
+Kamal 2.12 still runs hooks when that flag is set on a subcommand, so Helmsman also loads a small Ruby file into those processes that makes hook lookup miss. A hook in the project cannot run.
+
+It does not run `kamal deploy`, `kamal rollback`, `kamal server exec`, or any boot, start, stop, reboot, or remove command. Accessory names are checked before they are passed through, and log line counts are capped.
+
+- Commands run from the project directory where you started Helmsman.
+- `deploy.yml` is displayed and is not written.
+- Older deploy runs, if any, stay in `helmsman.sqlite` in that project directory.
 - Helmsman passes through `HOME` and `SSH_AUTH_SOCK` to Kamal.
 - Helmsman runs Kamal with the current shell `PATH` first, then appends `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin`.
 - If the project has `.ruby-version` and the matching Ruby exists in RVM, Helmsman adds the matching RVM Ruby and gem paths before running Kamal.

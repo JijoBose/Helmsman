@@ -1,92 +1,54 @@
 {% extends "layout.html" %}
 
-{% block title %}Activity - Helmsman{% endblock %}
+{% block title %}Audit - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+<div class="stack-lg">
+  <header class="page-head">
     <div>
-      <h1 class="page-title">Activity</h1>
-      <div class="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-        <span class="context-chip">
-          <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
-        </span>
-        <span class="text-slate-500">Audit &amp; runs</span>
-      </div>
+      <h1>Audit</h1>
+      <p class="lede">Commands Kamal has recorded on the servers. This page cannot roll back or deploy.</p>
     </div>
-    <div class="flex flex-wrap gap-2">
-      <button
-        class="btn btn-secondary btn-sm"
-        hx-get="/activity/audit"
-        hx-target="#audit-panel"
-        hx-swap="innerHTML"
-        hx-disabled-elt="this">
-        <span class="spinner htmx-indicator" aria-hidden="true"></span>
-        <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
-        Refresh audit
-      </button>
-      <button
-        class="btn btn-warning btn-sm"
-        hx-post="/activity/rollback"
-        hx-target="#rollback-result"
-        hx-swap="innerHTML"
-        hx-confirm="Roll back to the previous release? This runs kamal rollback on your servers."
-        hx-disabled-elt="this">
-        <span class="spinner htmx-indicator" aria-hidden="true"></span>
-        <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-rotate-ccw"/></svg>
-        Rollback
-      </button>
-    </div>
-  </div>
+    <button class="btn btn-secondary btn-sm" hx-get="/activity/audit" hx-target="#audit-panel" hx-swap="innerHTML" hx-disabled-elt="this">
+      <span class="spinner htmx-indicator" aria-hidden="true"></span>
+      <svg class="icon htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+      Refresh
+    </button>
+  </header>
 
-  <div class="grid md:grid-cols-5 gap-4">
-    <!-- Local Activity -->
-    <div class="md:col-span-2 content-card p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="section-title">Local runs</h2>
-        <a href="/history" class="link inline-flex items-center gap-1 text-xs font-medium">
-          View all
-          <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-arrow-right"/></svg>
-        </a>
+  <div class="split-2">
+    <section class="card card-pad">
+      <div class="split">
+        <h2>Recorded on this computer</h2>
+        <a href="/history">View all</a>
       </div>
       {% if runs.is_empty() %}
-        <div class="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center">
-          <div class="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
-            <svg class="icon h-4 w-4"><use href="#i-history"/></svg>
-          </div>
-          <p class="caption">No local activity yet. Deploys will appear here.</p>
-        </div>
+      <p class="muted" style="margin-top: 0.7rem">No deploys have been recorded here.</p>
       {% else %}
-        <div class="space-y-1.5 text-sm">
-          {% for run in runs %}
-          <div class="flex items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50 px-3 py-1.5 text-xs">
-            <a href="/history/{{ run.id }}" class="link font-medium tabular-nums">#{{ run.id }}</a>
-            <span class="truncate text-slate-500 tabular-nums">{{ run.started_at }}</span>
-            {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
-            {% else if run.exit_code == "—" %}<span class="pill pill-neutral">Running</span>
-            {% else %}<span class="pill pill-danger">Failed · exit {{ run.exit_code }}</span>{% endif %}
-          </div>
-          {% endfor %}
-        </div>
+      <ul class="run-list">
+        {% for run in runs %}
+        <li>
+          <a href="/history/{{ run.id }}">#{{ run.id }}</a>
+          <span class="muted">{{ run.started_at }}</span>
+          {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
+          {% else if run.exit_code == "running" %}<span class="pill pill-neutral">In progress</span>
+          {% else %}<span class="pill pill-danger">Failed · {{ run.exit_code }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
       {% endif %}
-    </div>
-
-    <!-- Kamal Audit -->
-    <div class="md:col-span-3">
-      <h2 class="section-title mb-1.5 px-1">Kamal audit</h2>
-      <div id="audit-panel" class="content-card p-4 text-xs mono max-h-[clamp(240px,40vh,420px)] overflow-auto bg-slate-50 text-slate-900">
-        {% if audit_lines.is_empty() %}
-          <div class="text-slate-500">No audit output yet. Click <span class="font-medium">Refresh audit</span>.</div>
-        {% else %}
-          {% for line in audit_lines %}
-          <pre class="log-line">{{ line }}</pre>
-          {% endfor %}
-        {% endif %}
-      </div>
-      <div id="rollback-result" class="mt-2 text-xs text-slate-700" role="status" aria-live="polite"></div>
-    </div>
+    </section>
+    <section class="card card-pad">
+      <h2>What you can do here</h2>
+      <p class="muted" style="margin-top: 0.45rem">Read the audit log. To roll back, use <code>kamal rollback</code> in your terminal. Helmsman will not run it.</p>
+    </section>
   </div>
 
-  <p class="caption">Audit is fetched via <span class="mono">kamal audit</span>. Rollback runs <span class="mono">kamal rollback</span>.</p>
-</section>
+  <section class="card">
+    <div class="card-head"><h2>Server audit log</h2></div>
+    <div id="audit-panel" class="audit" hx-get="/activity/audit" hx-trigger="load" hx-swap="innerHTML">
+      <p class="audit-empty">Reading the audit log…</p>
+    </div>
+  </section>
+</div>
 {% endblock %}

@@ -3,85 +3,85 @@
 {% block title %}Config - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <!-- Header -->
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div class="min-w-0">
-      <h1 class="page-title">Config</h1>
-      <div class="mt-1.5 min-w-0 space-y-0.5">
-        <div class="truncate text-xs text-slate-500" title="{{ project_path }}">{{ project_path }}</div>
-        <div class="mono truncate text-xs text-slate-500" title="{{ deploy_config_path }}">{{ deploy_config_path }}</div>
-        {% if !last_modified.is_empty() %}<div class="caption">Modified {{ last_modified }}</div>{% endif %}
-      </div>
+<div class="stack-lg">
+  <header class="page-head">
+    <div>
+      <h1>Config</h1>
+      <p class="lede">Your deploy.yml, shown so you can read it. Edit the file in your editor. Helmsman does not write it.</p>
     </div>
-    <button onclick="window.open('file://{{ deploy_config_path }}', '_blank')" class="btn btn-secondary btn-sm shrink-0" title="Open deploy.yml in a new browser tab">
-      <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-external-link"/></svg>
-      Open
+    {% if summary.exists && !summary.raw.is_empty() %}
+    <button class="btn btn-secondary btn-sm" type="button" id="copy-config">
+      <svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg>
+      Copy
     </button>
-  </div>
+    {% endif %}
+  </header>
 
-  {% if saved %}
-  <div id="saved-banner" class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status" aria-live="polite">
-    <svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-check"/></svg>
-    Saved.
-  </div>
-  <script>setTimeout(function(){ var b = document.getElementById('saved-banner'); if (b) { b.style.transition='opacity .3s ease'; b.style.opacity='0'; setTimeout(function(){ b.remove(); }, 320); } }, 4000);</script>
+  {% if !summary.exists %}
+  <section class="banner banner-warn">
+    <p class="banner-kicker">Missing file</p>
+    <p class="banner-title">No deploy.yml yet.</p>
+    <p class="banner-detail">Expected at {{ config_path }}. Helmsman also checks the project root and other folders.</p>
+  </section>
+  {% else if let Some(message) = summary.parse_error %}
+  <section class="banner banner-warn">
+    <p class="banner-kicker">YAML</p>
+    <p class="banner-title">This file is not valid YAML.</p>
+    <p class="banner-detail">{{ message }}</p>
+  </section>
+  {% else %}
+  <section class="card card-pad">
+    <dl class="kv">
+      <dt>File</dt>
+      <dd class="mono">{{ config_path }}</dd>
+      <dt>Service</dt>
+      <dd>{% if summary.service.is_empty() %}Not set{% else %}{{ summary.service }}{% endif %}</dd>
+      <dt>Image</dt>
+      <dd class="mono" title="{{ summary.image }}">{% if summary.image_short.is_empty() %}Not set{% else %}{{ summary.image_short }}{% endif %}</dd>
+      {% if !summary.registry.is_empty() %}
+      <dt>Registry</dt>
+      <dd>{{ summary.registry }}</dd>
+      {% endif %}
+      <dt>Servers</dt>
+      <dd>{% if summary.hosts.is_empty() %}None listed{% else %}{{ summary.hosts.len() }}{% endif %}</dd>
+      <dt>Accessories</dt>
+      <dd>{% if summary.accessories.is_empty() %}None{% else %}{{ summary.accessories.len() }}{% endif %}</dd>
+      {% if !summary.last_modified.is_empty() %}
+      <dt>Edited</dt>
+      <dd>{{ summary.last_modified }}</dd>
+      {% endif %}
+      <dt>Lines</dt>
+      <dd>{{ summary.line_count }}</dd>
+    </dl>
+  </section>
   {% endif %}
 
-  <div id="config-error" class="error-block hidden" role="alert"></div>
-
-  <!-- Raw viewer / editor -->
-  <form class="content-card overflow-hidden" hx-put="/config" hx-target="body" hx-swap="outerHTML"
-    hx-on::before-request="var e=document.getElementById('config-error'); if(e){ e.classList.add('hidden'); e.textContent=''; }">
-    <div class="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-      <div class="mono truncate text-slate-600">{{ deploy_config_path }} <span class="text-slate-500"># {{ raw.lines().count() }} lines</span></div>
-      <button class="btn btn-primary btn-sm shrink-0" hx-disabled-elt="this">
-        <span class="spinner htmx-indicator" aria-hidden="true"></span>
-        <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-check"/></svg>
-        Save file
-      </button>
+  {% if summary.exists %}
+  <section class="card">
+    <div class="card-head">
+      <h2 class="mono">deploy.yml</h2>
+      <span class="muted">{{ summary.line_count }} lines</span>
     </div>
-    <textarea name="raw" spellcheck="false" aria-label="Deploy configuration file (deploy.yml)"
-      placeholder="deploy.yml is empty or missing — paste your Kamal config here"
-      class="mono h-[clamp(320px,55vh,640px)] w-full border-t border-slate-100 bg-white p-4 text-xs leading-relaxed text-slate-800" style="resize: vertical;">{{ raw }}</textarea>
-  </form>
-
-  <details class="text-xs text-slate-600">
-    <summary class="cursor-pointer select-none hover:text-slate-900">Advanced: rebuild config from fields (destructive)</summary>
-    <form class="content-card mt-2 grid gap-4 p-4" hx-put="/config" hx-target="body" hx-swap="outerHTML">
-      <div class="warning-block flex items-start gap-2 !text-[11px] !leading-relaxed">
-        <svg class="icon h-4 w-4 shrink-0 translate-y-px" aria-hidden="true"><use href="#i-triangle-alert"/></svg>
-        <span>Saving here rewrites <span class="mono">deploy.yml</span> from only the fields below. Comments and any Kamal keys not shown (proxy, accessories, builder, healthcheck, volumes, ssh…) are removed. Use the raw editor above to preserve your full file.</span>
-      </div>
-      <div class="grid md:grid-cols-2 gap-3">
-        <label class="field-label">Service<input name="service" value="{{ service }}" class="field-input mono"></label>
-        <label class="field-label">Image<input name="image" value="{{ image }}" class="field-input mono"></label>
-      </div>
-      <label class="field-label">Servers<textarea name="servers" rows="3" class="field-input mono">{{ servers }}</textarea></label>
-      <div class="grid md:grid-cols-2 gap-3">
-        <label class="field-label">env.clear<textarea name="env_clear" rows="3" class="field-input mono">{{ env_clear }}</textarea></label>
-        <label class="field-label">env.secret<textarea name="env_secret" rows="3" class="field-input mono">{{ env_secret }}</textarea></label>
-      </div>
-      <div class="grid md:grid-cols-2 gap-3">
-        <label class="field-label">registry.server<input name="registry_server" value="{{ registry_server }}" class="field-input mono"></label>
-        <label class="field-label">registry.username<input name="registry_username" value="{{ registry_username }}" class="field-input mono"></label>
-      </div>
-      <button class="btn btn-warning btn-sm self-start"
-        hx-confirm="This replaces deploy.yml with only these fields and deletes comments plus any keys not shown. Continue?">
-        <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-triangle-alert"/></svg>
-        Overwrite file from these fields
-      </button>
-    </form>
-  </details>
-</section>
+    <pre id="config-raw" class="raw">{{ summary.raw }}</pre>
+  </section>
+  {% endif %}
+</div>
 
 <script>
-document.body.addEventListener('htmx:responseError', function (evt) {
-  var box = document.getElementById('config-error');
-  if (!box) return;
-  var xhr = evt.detail.xhr;
-  box.textContent = (xhr && xhr.responseText) ? xhr.responseText : ('Save failed (HTTP ' + (xhr ? xhr.status : '?') + ')');
-  box.classList.remove('hidden');
-});
+(function () {
+  var button = document.getElementById("copy-config");
+  var raw = document.getElementById("config-raw");
+  if (!button || !raw) return;
+  button.addEventListener("click", function () {
+    var original = button.textContent;
+    navigator.clipboard.writeText(raw.innerText).then(function () {
+      button.textContent = "Copied";
+      setTimeout(function () { button.textContent = original; }, 1600);
+    }).catch(function () {
+      button.textContent = "Select the text instead";
+      setTimeout(function () { button.textContent = original; }, 2000);
+    });
+  });
+})();
 </script>
 {% endblock %}

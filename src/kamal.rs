@@ -1,216 +1,184 @@
+//! The only Kamal processes Helmsman is allowed to start.
+//!
+//! `KamalQuery` is the whole allowlist. Every process is built from that enum,
+//! always ends with `--skip-hooks`, and never accepts a free-form argument list.
+//! The flag has to come after the subcommand. Kamal treats a leading
+//! `--skip-hooks` as "show help" and exits successfully.
+//!
+//! Kamal 2.12 still runs hooks when the flag is in the right place: the parent
+//! command records it, and the subcommand keeps the default. Each process also
+//! loads `skip_kamal_hooks.rb`, which makes hook lookup miss.
+
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    process::{ExitStatus, Stdio},
-    time::Instant,
+    process::Stdio,
+    time::Duration,
 };
 
 use once_cell::sync::Lazy;
 use regex::Regex;
-use sqlx::SqlitePool;
 use thiserror::Error;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, BufReader},
-    process::Command,
-    task::JoinHandle,
-    time::{Duration, sleep},
-};
-
-use crate::state::AppState;
+use tokio::{process::Command, time::timeout};
 
 const KAMAL_BASE_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
+const INSPECT_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_LOG_LINES: u32 = 1_000;
 
 static ANSI_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").expect("valid ANSI regex"));
 
 #[derive(Debug, Error)]
 pub enum KamalError {
-    #[error("a deploy is already running")]
-    AlreadyRunning,
+    #[error("{0}")]
+    Invalid(String),
+    #[error("{0} took too long and was stopped")]
+    TimedOut(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Db(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Clone)]
-pub struct DeployLine {
-    pub text: String,
-    pub phase: DeployPhase,
-    pub done: bool,
-}
-
-impl DeployLine {
-    pub fn new(text: impl Into<String>) -> Self {
-        let text = text.into();
-        let phase = detect_phase(&text);
-
-        Self {
-            text,
-            phase,
-            done: false,
-        }
-    }
-
-    pub fn done(text: impl Into<String>) -> Self {
-        let text = text.into();
-
-        Self {
-            text,
-            phase: DeployPhase::Done,
-            done: true,
-        }
-    }
-
-    pub fn html_fragment(&self) -> String {
-        format!(
-            r#"<pre class="log-line {}">{}</pre>"#,
-            self.phase.css_class(),
-            escape_html(&self.text)
-        )
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeployPhase {
-    Info,
-    Building,
-    Pushing,
-    Deploying,
-    HealthCheck,
-    Done,
-    Error,
-}
-
-impl DeployPhase {
-    fn css_class(self) -> &'static str {
+impl KamalError {
+    pub fn user_message(&self) -> String {
         match self {
-            DeployPhase::Info => "log-info",
-            DeployPhase::Building => "log-building",
-            DeployPhase::Pushing => "log-pushing",
-            DeployPhase::Deploying => "log-deploying",
-            DeployPhase::HealthCheck => "log-health-check",
-            DeployPhase::Done => "log-done",
-            DeployPhase::Error => "log-error",
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct KamalRunner {
-    state: AppState,
-}
-
-impl KamalRunner {
-    pub fn new(state: AppState) -> Self {
-        Self { state }
-    }
-
-    pub async fn start_deploy(&self) -> Result<i64, KamalError> {
-        let mut child_guard = self.state.active_child.lock().await;
-        if child_guard.is_some() {
-            return Err(KamalError::AlreadyRunning);
-        }
-
-        let project_path = self.state.project_path.lock().await.clone();
-        let project_path_string = project_path.display().to_string();
-        let started_at = Instant::now();
-
-        let run_id = sqlx::query("INSERT INTO deploy_runs (project_path) VALUES (?)")
-            .bind(&project_path_string)
-            .execute(&self.state.db)
-            .await?
-            .last_insert_rowid();
-
-        self.record_line(
-            run_id,
-            DeployLine::new(format!("Starting kamal deploy in {project_path_string}")),
-        )
-        .await;
-
-        let mut command = kamal_command(&project_path);
-        command.arg("deploy");
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(err) => {
-                let line = DeployLine {
-                    text: format!("Failed to start kamal deploy: {err}"),
-                    phase: DeployPhase::Error,
-                    done: false,
-                };
-                self.record_line(run_id, line).await;
-                finish_run(
-                    &self.state.db,
-                    run_id,
-                    -1,
-                    started_at.elapsed().as_secs() as i64,
-                )
-                .await?;
-                let _ = self
-                    .state
-                    .deploy_tx
-                    .send(DeployLine::done("Deploy process failed"));
-                return Err(KamalError::Io(err));
+            KamalError::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                "Helmsman couldn't find the kamal command. Start it from a terminal where `kamal version` works."
+                    .to_string()
             }
-        };
+            KamalError::Io(error) => format!("Could not run Kamal: {error}"),
+            KamalError::TimedOut(command) => format!(
+                "{command} took too long and was stopped. Check the SSH connection to your servers, then refresh."
+            ),
+            KamalError::Invalid(message) => message.clone(),
+        }
+    }
+}
 
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        *child_guard = Some(child);
-        drop(child_guard);
+/// Read-only Kamal commands. Adding a variant is the only way to run something new.
+#[derive(Debug, Clone)]
+pub enum KamalQuery {
+    AppDetails,
+    ProxyDetails,
+    AccessoryDetails { name: String },
+    AppLogs { lines: u32, follow: bool },
+    ProxyLogs { lines: u32 },
+    Audit,
+}
 
-        let stdout_task =
-            stdout.map(|reader| spawn_output_reader(self.state.clone(), run_id, reader));
-        let stderr_task =
-            stderr.map(|reader| spawn_output_reader(self.state.clone(), run_id, reader));
-        spawn_waiter(
-            self.state.clone(),
-            run_id,
-            started_at,
-            stdout_task,
-            stderr_task,
-        );
-
-        Ok(run_id)
+impl KamalQuery {
+    pub fn accessory_details(name: impl Into<String>) -> Result<Self, KamalError> {
+        let name = name.into();
+        validate_accessory_name(&name)?;
+        Ok(Self::AccessoryDetails { name })
     }
 
-    pub async fn abort(&self) -> Result<bool, KamalError> {
-        let killed = {
-            let mut child_guard = self.state.active_child.lock().await;
-            match child_guard.as_mut() {
-                Some(child) => {
-                    child.start_kill()?;
-                    true
+    pub fn app_logs(lines: u32, follow: bool) -> Self {
+        Self::AppLogs { lines, follow }
+    }
+
+    pub fn proxy_logs(lines: u32) -> Self {
+        Self::ProxyLogs { lines }
+    }
+
+    pub fn label(&self) -> String {
+        match self.argv() {
+            Ok(argv) => format!("kamal {}", argv.join(" ")),
+            Err(_) => "kamal".to_string(),
+        }
+    }
+
+    pub fn argv(&self) -> Result<Vec<String>, KamalError> {
+        let mut argv = Vec::new();
+
+        match self {
+            KamalQuery::AppDetails => argv.extend(["app".into(), "details".into()]),
+            KamalQuery::ProxyDetails => argv.extend(["proxy".into(), "details".into()]),
+            KamalQuery::Audit => argv.push("audit".into()),
+            KamalQuery::AccessoryDetails { name } => {
+                validate_accessory_name(name)?;
+                argv.extend(["accessory".into(), "details".into(), name.clone()]);
+            }
+            KamalQuery::AppLogs { lines, follow } => {
+                argv.extend(["app".into(), "logs".into()]);
+                if *follow {
+                    argv.push("--follow".into());
                 }
-                None => false,
+                argv.push("--lines".into());
+                argv.push(clamp_lines(*lines).to_string());
             }
-        };
-
-        if killed {
-            let line = DeployLine {
-                text: "Abort requested".to_string(),
-                phase: DeployPhase::Error,
-                done: false,
-            };
-            let _ = self.state.deploy_tx.send(line.clone());
-
-            if let Some(run_id) = latest_running_run_id(&self.state.db).await? {
-                append_log_line(&self.state.db, run_id, &line.text).await?;
+            KamalQuery::ProxyLogs { lines } => {
+                argv.extend([
+                    "proxy".into(),
+                    "logs".into(),
+                    "--lines".into(),
+                    clamp_lines(*lines).to_string(),
+                ]);
             }
         }
 
-        Ok(killed)
-    }
-
-    async fn record_line(&self, run_id: i64, line: DeployLine) {
-        let _ = self.state.deploy_tx.send(line.clone());
-        let _ = append_log_line(&self.state.db, run_id, &line.text).await;
+        // After the subcommand. A leading --skip-hooks makes Kamal print help.
+        argv.push("--skip-hooks".into());
+        Ok(argv)
     }
 }
 
-pub fn kamal_command(project_path: &Path) -> Command {
+#[derive(Debug)]
+pub struct CommandOutput {
+    pub success: bool,
+    pub text: String,
+}
+
+pub async fn output(project_path: &Path, query: &KamalQuery) -> Result<CommandOutput, KamalError> {
+    let mut command = prepare(project_path, query)?;
+    command
+        .kill_on_drop(true)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let child = command.spawn()?;
+    let label = query.label();
+
+    match timeout(INSPECT_TIMEOUT, child.wait_with_output()).await {
+        Ok(Ok(output)) => Ok(CommandOutput {
+            success: output.status.success(),
+            text: combine_output(&output.stdout, &output.stderr),
+        }),
+        Ok(Err(error)) => Err(KamalError::Io(error)),
+        Err(_) => Err(KamalError::TimedOut(label)),
+    }
+}
+
+pub fn spawn(project_path: &Path, query: &KamalQuery) -> Result<tokio::process::Child, KamalError> {
+    let mut command = prepare(project_path, query)?;
+    command
+        .kill_on_drop(true)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    Ok(command.spawn()?)
+}
+
+fn prepare(project_path: &Path, query: &KamalQuery) -> Result<Command, KamalError> {
+    let mut command = kamal_binary(project_path);
+    command.args(query.argv()?);
+    command.env("RUBYOPT", rubyopt_with_hook_guard()?);
+    Ok(command)
+}
+
+fn rubyopt_with_hook_guard() -> Result<String, KamalError> {
+    let script = env::temp_dir().join("helmsman-skip-kamal-hooks.rb");
+    fs::write(&script, include_str!("skip_kamal_hooks.rb"))?;
+
+    let require = format!("-r{}", script.display());
+    Ok(match env::var("RUBYOPT") {
+        Ok(existing) if !existing.is_empty() => format!("{require} {existing}"),
+        _ => require,
+    })
+}
+
+fn kamal_binary(project_path: &Path) -> Command {
     let mut command = Command::new("kamal");
     let rvm_env = rvm_env_for_project(project_path);
 
@@ -234,6 +202,36 @@ pub fn kamal_command(project_path: &Path) -> Command {
     }
 
     command
+}
+
+fn validate_accessory_name(name: &str) -> Result<(), KamalError> {
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .next()
+            .is_some_and(|char| char.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|char| char.is_ascii_alphanumeric() || char == '-' || char == '_');
+
+    if valid {
+        Ok(())
+    } else {
+        Err(KamalError::Invalid(format!(
+            "Skipped accessory `{name}` because the name is not safe to pass to Kamal."
+        )))
+    }
+}
+
+fn clamp_lines(lines: u32) -> u32 {
+    lines.clamp(1, MAX_LOG_LINES)
+}
+
+fn combine_output(stdout: &[u8], stderr: &[u8]) -> String {
+    let mut combined = String::from_utf8_lossy(stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(stderr));
+    strip_ansi(&combined)
 }
 
 struct RvmEnv {
@@ -346,198 +344,134 @@ pub fn strip_ansi(input: &str) -> String {
     ANSI_RE.replace_all(input, "").to_string()
 }
 
-fn detect_phase(line: &str) -> DeployPhase {
-    let lower = line.to_ascii_lowercase();
+/// Kamal prints a progress line before every remote command. Those lines are
+/// not application output, and on a failed connection they bury the reason.
+pub fn failure_detail(text: &str) -> String {
+    let mut kept = Vec::new();
 
-    if lower.contains("error")
-        || lower.contains("failed")
-        || lower.contains("failure")
-        || lower.contains("fatal")
-    {
-        DeployPhase::Error
-    } else if lower.contains("health") {
-        DeployPhase::HealthCheck
-    } else if lower.contains("build") || lower.contains("building") {
-        DeployPhase::Building
-    } else if lower.contains("push") || lower.contains("pushing") {
-        DeployPhase::Pushing
-    } else if lower.contains("deploy")
-        || lower.contains("boot")
-        || lower.contains("start")
-        || lower.contains("restart")
-    {
-        DeployPhase::Deploying
-    } else if lower.contains("done") || lower.contains("finished") || lower.contains("complete") {
-        DeployPhase::Done
-    } else {
-        DeployPhase::Info
-    }
-}
-
-fn spawn_output_reader<R>(state: AppState, run_id: i64, reader: R) -> JoinHandle<()>
-where
-    R: AsyncRead + Unpin + Send + 'static,
-{
-    tokio::spawn(async move {
-        let mut lines = BufReader::new(reader).lines();
-
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    let line = DeployLine::new(strip_ansi(&line));
-                    let _ = state.deploy_tx.send(line.clone());
-                    let _ = append_log_line(&state.db, run_id, &line.text).await;
-                }
-                Ok(None) => break,
-                Err(err) => {
-                    let line = DeployLine {
-                        text: format!("Failed to read kamal output: {err}"),
-                        phase: DeployPhase::Error,
-                        done: false,
-                    };
-                    let _ = state.deploy_tx.send(line.clone());
-                    let _ = append_log_line(&state.db, run_id, &line.text).await;
-                    break;
-                }
-            }
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || is_kamal_progress(trimmed) {
+            continue;
         }
-    })
-}
-
-fn spawn_waiter(
-    state: AppState,
-    run_id: i64,
-    started_at: Instant,
-    stdout_task: Option<JoinHandle<()>>,
-    stderr_task: Option<JoinHandle<()>>,
-) {
-    tokio::spawn(async move {
-        let status = wait_for_child(&state).await;
-
-        if let Some(task) = stdout_task {
-            let _ = task.await;
+        if !kept.iter().any(|seen: &String| seen == trimmed) {
+            kept.push(trimmed.to_string());
         }
-        if let Some(task) = stderr_task {
-            let _ = task.await;
-        }
-
-        match status {
-            Ok(Some(status)) => finish_deploy(state, run_id, started_at, status).await,
-            Ok(None) => {}
-            Err(err) => {
-                let line = DeployLine {
-                    text: format!("Failed while waiting for kamal deploy: {err}"),
-                    phase: DeployPhase::Error,
-                    done: false,
-                };
-                let _ = state.deploy_tx.send(line.clone());
-                let _ = append_log_line(&state.db, run_id, &line.text).await;
-                let _ =
-                    finish_run(&state.db, run_id, -1, started_at.elapsed().as_secs() as i64).await;
-                let _ = state
-                    .deploy_tx
-                    .send(DeployLine::done("Deploy finished with an internal error"));
-            }
-        }
-    });
-}
-
-async fn wait_for_child(state: &AppState) -> std::io::Result<Option<ExitStatus>> {
-    loop {
-        let maybe_status = {
-            let mut child_guard = state.active_child.lock().await;
-            match child_guard.as_mut() {
-                Some(child) => match child.try_wait()? {
-                    Some(status) => {
-                        *child_guard = None;
-                        Some(status)
-                    }
-                    None => None,
-                },
-                None => return Ok(None),
-            }
-        };
-
-        if maybe_status.is_some() {
-            return Ok(maybe_status);
-        }
-
-        sleep(Duration::from_millis(200)).await;
-    }
-}
-
-async fn finish_deploy(state: AppState, run_id: i64, started_at: Instant, status: ExitStatus) {
-    let exit_code = status.code().unwrap_or(-1);
-    let duration_seconds = started_at.elapsed().as_secs() as i64;
-    let summary = if status.success() {
-        format!("Deploy finished successfully in {duration_seconds}s")
-    } else {
-        format!("Deploy exited with code {exit_code} after {duration_seconds}s")
-    };
-
-    let line = DeployLine {
-        text: summary.clone(),
-        phase: if status.success() {
-            DeployPhase::Done
-        } else {
-            DeployPhase::Error
-        },
-        done: false,
-    };
-
-    let _ = state.deploy_tx.send(line.clone());
-    let _ = append_log_line(&state.db, run_id, &line.text).await;
-    let _ = finish_run(&state.db, run_id, exit_code, duration_seconds).await;
-    let _ = state.deploy_tx.send(DeployLine::done(summary));
-}
-
-async fn append_log_line(pool: &SqlitePool, run_id: i64, line: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE deploy_runs SET log = log || ? || char(10) WHERE id = ?")
-        .bind(line)
-        .bind(run_id)
-        .execute(pool)
-        .await?;
-
-    Ok(())
-}
-
-async fn finish_run(
-    pool: &SqlitePool,
-    run_id: i64,
-    exit_code: i32,
-    duration_seconds: i64,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE deploy_runs SET exit_code = ?, duration_seconds = ? WHERE id = ?")
-        .bind(exit_code)
-        .bind(duration_seconds)
-        .bind(run_id)
-        .execute(pool)
-        .await?;
-
-    Ok(())
-}
-
-async fn latest_running_run_id(pool: &SqlitePool) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar(
-        "SELECT id FROM deploy_runs WHERE exit_code IS NULL ORDER BY id DESC LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await
-}
-
-fn escape_html(input: &str) -> String {
-    let mut escaped = String::with_capacity(input.len());
-
-    for char in input.chars() {
-        match char {
-            '&' => escaped.push_str("&amp;"),
-            '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
-            '"' => escaped.push_str("&quot;"),
-            '\'' => escaped.push_str("&#39;"),
-            _ => escaped.push(char),
+        if kept.len() == 6 {
+            break;
         }
     }
 
-    escaped
+    kept.join("\n")
+}
+
+pub fn is_kamal_progress(line: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with("INFO [") && trimmed.contains("] Running ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_query_is_a_read_only_kamal_command() {
+        let queries = [
+            KamalQuery::AppDetails,
+            KamalQuery::ProxyDetails,
+            KamalQuery::Audit,
+            KamalQuery::accessory_details("db").unwrap(),
+            KamalQuery::app_logs(0, true),
+            KamalQuery::app_logs(50_000, false),
+            KamalQuery::proxy_logs(300),
+        ];
+
+        for query in queries {
+            let argv = query.argv().unwrap();
+            assert_eq!(
+                argv.last().map(String::as_str),
+                Some("--skip-hooks"),
+                "hooks must stay off, and the flag must follow the subcommand"
+            );
+
+            let verb = match argv[0].as_str() {
+                "audit" => "audit".to_string(),
+                group => format!("{group} {}", argv[1]),
+            };
+
+            assert!(
+                matches!(
+                    verb.as_str(),
+                    "app details"
+                        | "app logs"
+                        | "accessory details"
+                        | "proxy details"
+                        | "proxy logs"
+                        | "audit"
+                ),
+                "unexpected kamal command: {verb}"
+            );
+
+            for arg in &argv {
+                assert!(
+                    !matches!(
+                        arg.as_str(),
+                        "deploy"
+                            | "rollback"
+                            | "redeploy"
+                            | "reboot"
+                            | "remove"
+                            | "exec"
+                            | "setup"
+                            | "upgrade"
+                            | "boot"
+                            | "start"
+                            | "stop"
+                            | "push"
+                            | "bootstrap"
+                            | "prune"
+                    ),
+                    "mutating argument `{arg}` in {argv:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn log_queries_only_carry_line_flags() {
+        assert_eq!(
+            KamalQuery::app_logs(50_000, true).argv().unwrap(),
+            vec!["app", "logs", "--follow", "--lines", "1000", "--skip-hooks"]
+        );
+        assert_eq!(
+            KamalQuery::app_logs(0, false).argv().unwrap(),
+            vec!["app", "logs", "--lines", "1", "--skip-hooks"]
+        );
+        assert_eq!(
+            KamalQuery::proxy_logs(300).argv().unwrap(),
+            vec!["proxy", "logs", "--lines", "300", "--skip-hooks"]
+        );
+    }
+
+    #[test]
+    fn accessory_names_cannot_smuggle_flags_or_shell() {
+        for name in [
+            "--help",
+            "-v",
+            "db;rm",
+            "db && true",
+            "name with space",
+            "",
+            "../db",
+            "a/b",
+        ] {
+            assert!(
+                KamalQuery::accessory_details(name).is_err(),
+                "accepted unsafe accessory name {name}"
+            );
+        }
+
+        assert!(KamalQuery::accessory_details("redis_1").is_ok());
+        assert!(KamalQuery::accessory_details("web-db").is_ok());
+    }
 }

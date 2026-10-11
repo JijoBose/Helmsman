@@ -8,7 +8,15 @@ use sqlx::Row;
 
 use crate::state::AppState;
 
-use super::{AppError, render};
+use super::{AppError, Chrome, render};
+
+#[derive(Debug)]
+pub struct RecentRun {
+    pub id: i64,
+    pub started_at: String,
+    pub exit_code: String,
+    pub duration: String,
+}
 
 #[derive(Debug)]
 struct DeployRunSummary {
@@ -32,7 +40,7 @@ struct DeployRunDetail {
 #[derive(Template)]
 #[template(path = "history.html")]
 struct HistoryTemplate {
-    active: &'static str,
+    chrome: Chrome,
     runs: Vec<DeployRunSummary>,
     empty: bool,
 }
@@ -40,11 +48,37 @@ struct HistoryTemplate {
 #[derive(Template)]
 #[template(path = "history_detail.html")]
 struct HistoryDetailTemplate {
-    active: &'static str,
+    chrome: Chrome,
     run: DeployRunDetail,
 }
 
+pub async fn recent_runs(
+    pool: &sqlx::SqlitePool,
+    limit: i64,
+) -> Result<Vec<RecentRun>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT id, started_at, exit_code, duration_seconds
+         FROM deploy_runs
+         ORDER BY id DESC
+         LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| RecentRun {
+            id: row.get("id"),
+            started_at: row.get("started_at"),
+            exit_code: format_exit_code(row.get("exit_code")),
+            duration: format_duration(row.get("duration_seconds")),
+        })
+        .collect())
+}
+
 pub async fn list(State(state): State<AppState>) -> Result<Html<String>, AppError> {
+    let chrome = super::chrome(&state, "history").await;
     let rows = sqlx::query(
         "SELECT id, started_at, project_path, exit_code, duration_seconds
          FROM deploy_runs
@@ -66,7 +100,7 @@ pub async fn list(State(state): State<AppState>) -> Result<Html<String>, AppErro
         .collect::<Vec<_>>();
 
     render(HistoryTemplate {
-        active: "history",
+        chrome,
         empty: runs.is_empty(),
         runs,
     })
@@ -86,8 +120,10 @@ pub async fn detail(
     .await?
     .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "history run not found"))?;
 
+    let chrome = super::chrome(&state, "history").await;
+
     render(HistoryDetailTemplate {
-        active: "history",
+        chrome,
         run: DeployRunDetail {
             id: row.get("id"),
             started_at: row.get("started_at"),

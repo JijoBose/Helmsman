@@ -3,102 +3,135 @@
 {% block title %}Logs - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <div>
-    <h1 class="page-title">Logs</h1>
-    <div class="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-      <span class="context-chip">
-        <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
-      </span>
-      <span class="text-slate-500">Live container logs</span>
+<div class="stack-lg">
+  <header class="page-head">
+    <div>
+      <h1>Logs</h1>
+      <p class="lede">Recent output from the app containers. Following the log only reads new lines.</p>
     </div>
-  </div>
-
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <button id="live-btn" class="btn btn-primary" onclick="toggleLiveLogs()" aria-pressed="false">
-        <svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-play"/></svg>
-        <span>Live</span>
+    <div class="cluster">
+      <div class="seg" aria-label="How many lines to load">
+        <a class="seg-btn" href="/logs?tail=100" {% if tail == 100 %}aria-current="page"{% endif %}>100</a>
+        <a class="seg-btn" href="/logs?tail=200" {% if tail == 200 %}aria-current="page"{% endif %}>200</a>
+        <a class="seg-btn" href="/logs?tail=500" {% if tail == 500 %}aria-current="page"{% endif %}>500</a>
+      </div>
+      <button id="live-btn" class="btn btn-primary" type="button" aria-pressed="false">
+        <svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>
+        Follow live
       </button>
-      <button
-        class="btn btn-secondary"
-        hx-get="/logs"
-        hx-target="#log-output"
-        hx-select="#log-output"
-        hx-swap="outerHTML"
-        hx-disabled-elt="this"
-        title="Replace the terminal with the most recent captured logs">
+      <button class="btn btn-secondary" type="button" hx-get="/logs/recent?tail={{ tail }}" hx-target="#log-output" hx-swap="innerHTML" hx-disabled-elt="this" hx-on::before-request="window.hmLogs && hmLogs.stop()">
         <span class="spinner htmx-indicator" aria-hidden="true"></span>
-        <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-rotate-ccw"/></svg>
-        Load last output
+        <svg class="icon htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+        Refresh
       </button>
-      <button type="button" class="icon-btn" aria-label="Clear log"
-        onclick="document.getElementById('log-output').innerHTML=''">
-        <svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-x"/></svg>
-      </button>
-      <span id="live-indicator" class="pill pill-neutral" role="status" aria-live="polite">Idle</span>
     </div>
-    <div class="caption">From <span class="mono">kamal app logs</span></div>
+  </header>
+
+  <div class="cluster">
+    <label class="field">
+      Find in these lines
+      <input id="log-search" type="search" placeholder="Error, request id, path…" autocomplete="off">
+    </label>
+    <label class="check"><input id="stick-bottom" type="checkbox" checked> Keep the latest line in view</label>
+    <span id="live-indicator" class="pill pill-neutral">Showing the latest {{ tail }}</span>
   </div>
 
-  <div class="content-card overflow-hidden">
-    <div class="terminal-bar">
-      <span class="inline-flex items-center gap-1.5">
-        <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-terminal"/></svg>
-        <span class="mono">container logs</span>
-      </span>
-    </div>
-    <div id="log-output" class="terminal h-[clamp(360px,60vh,760px)] overflow-y-auto p-3 text-xs"
-      role="log" aria-label="Container logs" aria-live="off">
-      {% for line in lines %}<pre class="log-line">{{ line }}</pre>{% endfor %}
+  <div class="card" style="overflow: hidden">
+    <div id="log-output" class="terminal" role="log" aria-label="Container logs" aria-live="off" hx-get="/logs/recent?tail={{ tail }}" hx-trigger="load" hx-swap="innerHTML">
+      <p class="log-empty">Loading recent logs…</p>
     </div>
   </div>
-
-  <p class="caption">Tip: click <span class="font-medium text-slate-600">Live</span> to stream new lines, or <span class="font-medium text-slate-600">Load last output</span> to refetch the most recent logs.</p>
-</section>
+</div>
 
 <script>
-var logEs = null;
-var ICON_PLAY = '<svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-play"/></svg><span>Live</span>';
-var ICON_STOP = '<svg class="icon h-4 w-4" aria-hidden="true"><use href="#i-square"/></svg><span>Stop</span>';
+(function () {
+  var source = null;
+  var tail = "{{ tail }}";
+  var play = '<svg class="icon" aria-hidden="true"><use href="#i-play"/></svg> Follow live';
+  var stop = '<svg class="icon" aria-hidden="true"><use href="#i-square"/></svg> Stop following';
 
-function setLiveIndicator(kind, label, live) {
-  var ind = document.getElementById('live-indicator');
-  if (!ind) return;
-  ind.className = 'pill pill-' + kind + (live ? ' pill-live' : '');
-  ind.innerHTML = (live ? '<span class="pill-dot" aria-hidden="true"></span>' : '') + label;
-}
-
-function stopLiveLogs() {
-  if (logEs) { logEs.close(); logEs = null; }
-  var btn = document.getElementById('live-btn');
-  if (btn) { btn.className = 'btn btn-primary'; btn.innerHTML = ICON_PLAY; btn.setAttribute('aria-pressed', 'false'); }
-  setLiveIndicator('neutral', 'Idle', false);
-}
-
-function toggleLiveLogs() {
-  if (logEs) { stopLiveLogs(); return; }
-  var btn = document.getElementById('live-btn');
-  logEs = new EventSource('/logs/stream');
-  if (btn) { btn.className = 'btn btn-danger'; btn.innerHTML = ICON_STOP; btn.setAttribute('aria-pressed', 'true'); }
-  setLiveIndicator('success', 'LIVE', true);
-
-  logEs.onmessage = function (ev) {
-    var out = document.getElementById('log-output');
+  function output() { return document.getElementById("log-output"); }
+  function stick() {
+    var box = document.getElementById("stick-bottom");
+    return !box || box.checked;
+  }
+  function scrollDown() {
+    var out = output();
+    if (out && stick()) out.scrollTop = out.scrollHeight;
+  }
+  function applySearch() {
+    var input = document.getElementById("log-search");
+    var query = input ? input.value.trim().toLowerCase() : "";
+    var out = output();
     if (!out) return;
-    var pre = document.createElement('pre');
-    pre.className = 'log-line';
-    pre.textContent = ev.data;
-    out.appendChild(pre);
-    out.scrollTop = out.scrollHeight;
-  };
+    out.querySelectorAll(".log-line").forEach(function (line) {
+      var text = line.textContent.toLowerCase();
+      line.hidden = query !== "" && text.indexOf(query) === -1;
+    });
+  }
+  function setIndicator(kind, label, live) {
+    var el = document.getElementById("live-indicator");
+    if (!el) return;
+    el.className = "pill pill-" + kind + (live ? " pill-live" : "");
+    el.textContent = label;
+  }
+  function stopLive() {
+    if (source) { source.close(); source = null; }
+    var button = document.getElementById("live-btn");
+    if (button) { button.className = "btn btn-primary"; button.innerHTML = play; button.setAttribute("aria-pressed", "false"); }
+    setIndicator("neutral", "Showing the latest " + tail, false);
+  }
+  function append(text) {
+    var out = output();
+    if (!out) return;
+    var line = document.createElement("pre");
+    line.className = "log-line";
+    line.textContent = text;
+    out.appendChild(line);
+    while (out.querySelectorAll(".log-line").length > 1500) {
+      var first = out.querySelector(".log-line");
+      if (first) first.remove();
+      else break;
+    }
+    applySearch();
+    scrollDown();
+  }
 
-  logEs.onerror = function () {
-    if (logEs) { logEs.close(); logEs = null; }
-    var b = document.getElementById('live-btn');
-    if (b) { b.className = 'btn btn-primary'; b.innerHTML = ICON_PLAY; b.setAttribute('aria-pressed', 'false'); }
-    setLiveIndicator('warning', 'Stream ended — click Live', false);
-  };
-}
+  document.getElementById("live-btn").addEventListener("click", function () {
+    if (source) { stopLive(); return; }
+    source = new EventSource("/logs/stream?tail=" + encodeURIComponent(tail));
+    this.className = "btn btn-danger";
+    this.innerHTML = stop;
+    this.setAttribute("aria-pressed", "true");
+    setIndicator("success", "Following live", true);
+    source.onmessage = function (event) { append(event.data); };
+    source.onerror = function () {
+      stopLive();
+      setIndicator("warning", "The live log stopped. Follow again to retry.", false);
+    };
+  });
+  document.getElementById("log-search").addEventListener("input", applySearch);
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.target && event.detail.target.id === "log-output" && source) {
+      event.detail.shouldSwap = false;
+    }
+  });
+  document.body.addEventListener("htmx:afterSwap", function (event) {
+    if (event.target && event.target.id === "log-output") {
+      applySearch();
+      scrollDown();
+    }
+  });
+  var out = output();
+  if (out) {
+    out.addEventListener("scroll", function () {
+      var box = document.getElementById("stick-bottom");
+      if (!box) return;
+      var nearBottom = out.scrollHeight - out.scrollTop - out.clientHeight < 48;
+      if (!nearBottom) box.checked = false;
+    });
+  }
+  window.hmLogs = { stop: stopLive };
+})();
 </script>
 {% endblock %}

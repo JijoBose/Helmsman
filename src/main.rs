@@ -1,3 +1,4 @@
+mod deploy_config;
 mod kamal;
 mod routes;
 mod state;
@@ -11,9 +12,9 @@ use std::{
     time::Duration,
 };
 
+use axum::{http::header, response::IntoResponse, routing::get};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use tokio::sync::{Mutex, broadcast};
-use tower_http::services::ServeDir;
+use tokio::sync::Mutex;
 
 use state::AppState;
 
@@ -21,17 +22,16 @@ use state::AppState;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project_paths = detect_project_paths()?;
     let db = init_database().await?;
-    let (deploy_tx, _) = broadcast::channel(1_000);
-
     let state = AppState {
         project_path: Arc::new(Mutex::new(project_paths.project_path)),
         deploy_config_path: Arc::new(Mutex::new(project_paths.deploy_config_path)),
-        deploy_tx,
-        active_child: Arc::new(Mutex::new(None)),
         db,
     };
 
-    let app = routes::router(state).nest_service("/static", ServeDir::new("static"));
+    let app = routes::router(state)
+        .route("/static/app.css", get(css))
+        .route("/static/htmx.min.js", get(htmx))
+        .route("/static/favicon.svg", get(favicon));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 
     let url = "http://127.0.0.1:3000";
@@ -48,6 +48,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn css() -> impl IntoResponse {
+    asset("text/css; charset=utf-8", include_str!("../static/app.css"))
+}
+
+async fn htmx() -> impl IntoResponse {
+    asset(
+        "application/javascript; charset=utf-8",
+        include_str!("../static/htmx.min.js"),
+    )
+}
+
+async fn favicon() -> impl IntoResponse {
+    asset("image/svg+xml", include_str!("../static/favicon.svg"))
+}
+
+fn asset(content_type: &'static str, body: &'static str) -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        body,
+    )
+}
+
 struct ProjectPaths {
     project_path: PathBuf,
     deploy_config_path: PathBuf,
@@ -61,9 +86,8 @@ fn detect_project_paths() -> Result<ProjectPaths, std::io::Error> {
         println!("Using Kamal config {}", deploy_config_path.display());
     } else {
         eprintln!(
-            "No deploy.yml found under {}; new config will be written to {}.",
-            cwd.display(),
-            deploy_config_path.display()
+            "No deploy.yml found under {}. Helmsman will show an empty config until one exists.",
+            cwd.display()
         );
     }
 

@@ -1,0 +1,58 @@
+{% if let Some(message) = error %}
+<pre class="error-block" role="alert">{{ message }}</pre>
+{% else %}
+<div class="stats">
+  <button type="button" class="card stat stat-button" data-prefix="" aria-pressed="true">
+    <div class="stat-label">Shown</div>
+    <div class="stat-value">{{ count }}</div>
+  </button>
+  <button type="button" class="card stat stat-button" data-prefix="2" aria-pressed="false">
+    <div class="stat-label">2xx</div>
+    <div class="stat-value">{{ ok_2xx }}</div>
+  </button>
+  <button type="button" class="card stat stat-button" data-prefix="3" aria-pressed="false">
+    <div class="stat-label">3xx</div>
+    <div class="stat-value">{{ three_xx }}</div>
+  </button>
+  <button type="button" class="card stat stat-button" data-prefix="4" aria-pressed="false">
+    <div class="stat-label">4xx</div>
+    <div class="stat-value">{{ four_xx }}</div>
+  </button>
+  <button type="button" class="card stat stat-button" data-prefix="5" aria-pressed="false">
+    <div class="stat-label">5xx</div>
+    <div class="stat-value">{{ five_xx }}</div>
+  </button>
+</div>
+
+{% if empty %}
+<div class="card empty">
+  <h2>No recent proxy requests</h2>
+  <p class="muted">The proxy log was empty, or access logging is not turned on.</p>
+</div>
+{% else %}
+<div class="card table-wrap">
+  <table id="requests-table" class="data-table">
+    <thead>
+      <tr>
+        <th>Time</th>
+        <th>Method</th>
+        <th>Status</th>
+        <th>Host</th>
+        <th>Path</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in entries %}
+      <tr data-status="{{ entry.status }}" data-search="{{ entry.method }} {{ entry.status }} {{ entry.host }} {{ entry.path }}">
+        <td class="muted">{{ entry.time }}</td>
+        <td class="name">{{ entry.method }}</td>
+        <td>{{ entry.status }}</td>
+        <td class="truncate">{{ entry.host }}</td>
+        <td class="truncate" title="{{ entry.path }}">{{ entry.path }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endif %}

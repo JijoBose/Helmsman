@@ -3,73 +3,92 @@
 {% block title %}Containers - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <!-- Header -->
-  <div>
-    <h1 class="page-title">Containers</h1>
-    <div class="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-      <span class="context-chip">
-        <svg class="icon h-3.5 w-3.5 text-slate-400" aria-hidden="true"><use href="#i-chevron-down"/></svg>
-        <span class="font-medium">default</span>
-      </span>
-      <span class="context-chip">
-        <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
-      </span>
-      {% if !host.is_empty() %}
-      <div class="flex items-center gap-1.5 text-slate-500">
-        <span class="mono text-xs">{{ host }}</span>
-        <span class="text-slate-300" aria-hidden="true">·</span>
-        <span class="chip">{% if !role.is_empty() %}{{ role }}{% else %}web{% endif %}</span>
-      </div>
-      {% endif %}
+<div class="stack-lg">
+  <header class="page-head">
+    <div>
+      <h1>Containers</h1>
+      <p class="lede">What is on your servers right now, from Kamal's read-only detail commands.</p>
     </div>
-  </div>
-
-  <!-- Metrics row -->
-  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-    {% for m in metrics %}
-    <div class="metric-card p-4">
-      <div class="eyebrow flex items-center gap-1.5">
-        <svg class="icon h-3.5 w-3.5 text-slate-400" aria-hidden="true"><use href="#i-{{ m.icon }}"/></svg>
-        <span>{{ m.label }}</span>
-      </div>
-      <div class="mt-1.5 flex items-baseline gap-2">
-        <div class="text-2xl font-semibold tracking-tight tabular-nums text-slate-900">{{ m.value }}</div>
-        {% if !m.sub.is_empty() %}<div class="text-xs text-slate-500">{{ m.sub }}</div>{% endif %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  <p class="caption">Host-level best-effort readings from uptime / free / df; may be unavailable.</p>
-
-  <!-- View switcher + controls -->
-  <div class="flex flex-wrap items-center justify-between gap-3">
-    <div class="flex items-center gap-3">
+    <div class="cluster">
       <div class="seg" role="group" aria-label="Container view">
-        <a href="/containers" class="seg-btn" aria-current="page">Table</a>
-        <a href="/servers" class="seg-btn">By host</a>
+        <a class="seg-btn" href="/containers" {% if view == "table" %}aria-current="page"{% endif %}>Table</a>
+        <a class="seg-btn" href="/containers?view=hosts" {% if view == "hosts" %}aria-current="page"{% endif %}>By host</a>
       </div>
-      <div class="text-sm tabular-nums">
-        <span class="font-semibold text-slate-900">{{ running_containers }}</span><span class="text-slate-500">/{{ total_containers }}</span>
-        <span class="ml-1 text-slate-500">running</span>
-      </div>
+      <button class="btn btn-secondary btn-sm" hx-get="/containers/status?view={{ view }}" hx-target="#fleet" hx-swap="innerHTML" hx-disabled-elt="this">
+        <span class="spinner htmx-indicator" aria-hidden="true"></span>
+        <svg class="icon htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+        Refresh
+      </button>
     </div>
-    <button
-      class="btn btn-secondary btn-sm"
-      hx-get="/containers/status"
-      hx-target="#containers-content"
-      hx-swap="innerHTML"
-      hx-disabled-elt="this">
-      <span class="spinner htmx-indicator" aria-hidden="true"></span>
-      <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
-      Refresh
-    </button>
-  </div>
+  </header>
 
-  <div id="containers-content" class="content-card swap-fade overflow-hidden">
-    <div class="overflow-x-auto">
-      {% include "containers_table.html" %}
-    </div>
+  <label class="field">
+    Find a container
+    <input id="container-search" type="search" placeholder="Name, host, role, or stopped" autocomplete="off">
+  </label>
+  <p id="filter-status" class="sr-only" aria-live="polite"></p>
+  <p id="filter-empty" class="card empty" hidden>Nothing matches that search.</p>
+
+  <div id="fleet" class="stack" hx-get="/containers/status?view={{ view }}" hx-trigger="load" hx-swap="innerHTML">
+    <section class="banner banner-neutral" role="status">
+      <p class="banner-kicker">Checking</p>
+      <p class="banner-title">Looking at your containers…</p>
+    </section>
   </div>
-</section>
+</div>
+
+<script>
+(function () {
+  var currentRole = "";
+
+  function applyFilter() {
+    var input = document.getElementById("container-search");
+    var query = input ? input.value.trim().toLowerCase() : "";
+    var buttons = document.querySelectorAll("#fleet [data-role-filter]");
+    var known = currentRole === "";
+    buttons.forEach(function (button) {
+      var role = button.getAttribute("data-role-filter") || "";
+      if (role === currentRole) known = true;
+      var pressed = role === currentRole;
+      button.setAttribute("aria-pressed", pressed ? "true" : "false");
+    });
+    if (!known) currentRole = "";
+
+    var rows = document.querySelectorAll("#fleet [data-container]");
+    var shown = 0;
+    rows.forEach(function (row) {
+      var text = (row.getAttribute("data-search") || "").toLowerCase();
+      var role = row.getAttribute("data-role") || "";
+      var visible = (currentRole === "" || role === currentRole) && (query === "" || text.indexOf(query) !== -1);
+      row.hidden = !visible;
+      if (visible) shown += 1;
+    });
+    document.querySelectorAll("#fleet [data-host-card]").forEach(function (card) {
+      card.hidden = !card.querySelector("[data-container]:not([hidden])");
+    });
+
+    var empty = document.getElementById("filter-empty");
+    if (empty) empty.hidden = rows.length === 0 || shown > 0;
+    var status = document.getElementById("filter-status");
+    if (status) {
+      if (!query && !currentRole) status.textContent = "";
+      else status.textContent = "Showing " + shown + " containers.";
+    }
+  }
+
+  document.addEventListener("input", function (event) {
+    if (event.target && event.target.id === "container-search") applyFilter();
+  });
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-role-filter]") : null;
+    if (!button) return;
+    var role = button.getAttribute("data-role-filter") || "";
+    currentRole = currentRole === role ? "" : role;
+    applyFilter();
+  });
+  document.body.addEventListener("htmx:afterSwap", function (event) {
+    if (event.target && event.target.id === "fleet") applyFilter();
+  });
+})();
+</script>
 {% endblock %}

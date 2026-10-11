@@ -1,157 +1,79 @@
 {% extends "layout.html" %}
 
-{% block title %}Requests - Helmsman{% endblock %}
+{% block title %}Traffic - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+<div class="stack-lg">
+  <header class="page-head">
     <div>
-      <h1 class="page-title">Requests</h1>
-      <div class="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-        <span class="context-chip">
-          <span class="font-medium">{% if !service.is_empty() %}{{ service }}{% else %}app{% endif %}</span>
-        </span>
-        <span class="text-slate-500">HTTP traffic via proxy</span>
-      </div>
+      <h1>Traffic</h1>
+      <p class="lede">Recent HTTP requests from the Kamal proxy log. This is a sample of the latest lines, not a full analytics report.</p>
     </div>
-    <button class="btn btn-secondary btn-sm shrink-0"
-      hx-get="/requests" hx-target="#requests-content" hx-select="#requests-content" hx-swap="outerHTML" hx-disabled-elt="this">
+    <button class="btn btn-secondary btn-sm" hx-get="/requests/list" hx-target="#traffic" hx-swap="innerHTML" hx-disabled-elt="this">
       <span class="spinner htmx-indicator" aria-hidden="true"></span>
-      <svg class="icon h-3.5 w-3.5 htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+      <svg class="icon htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
       Refresh
     </button>
+  </header>
+
+  <label class="field">
+    Find a request
+    <input id="traffic-search" type="search" placeholder="Path, host, or method" autocomplete="off">
+  </label>
+  <p id="traffic-status" class="sr-only" aria-live="polite"></p>
+
+  <div id="traffic" class="stack" hx-get="/requests/list" hx-trigger="load" hx-swap="innerHTML">
+    <section class="banner banner-neutral">
+      <p class="banner-kicker">Checking</p>
+      <p class="banner-title">Reading proxy logs…</p>
+    </section>
   </div>
-
-  <div id="requests-content" class="space-y-5">
-    <!-- Request stats cards (clickable filters) -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50"
-        aria-label="Show all requests" onclick="filterRequests(null)">
-        <div class="eyebrow">Requests</div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-slate-900">{{ count }}</div>
-        <div class="caption mt-0.5">recent proxy lines</div>
-      </button>
-      <div class="metric-card p-4" title="Rough estimate from proxy log volume">
-        <div class="eyebrow">Reqs/s (approx)</div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-slate-900">{{ reqs_per_sec }}</div>
-      </div>
-      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
-        data-prefix="2" aria-pressed="false" aria-label="Filter to 2xx responses" onclick="filterRequests('2')">
-        <div class="eyebrow text-emerald-700">2XX</div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-emerald-700">{{ ok_2xx }}</div>
-      </button>
-      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
-        data-prefix="3" aria-pressed="false" aria-label="Filter to 3xx responses" onclick="filterRequests('3')">
-        <div class="eyebrow text-slate-600">3XX</div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-slate-700">{{ three_xx }}</div>
-      </button>
-      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
-        data-prefix="4" aria-pressed="false" aria-label="Filter to 4xx responses" onclick="filterRequests('4')">
-        <div class="eyebrow text-amber-700">4XX</div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-amber-700">{{ four_xx }}</div>
-      </button>
-      <button type="button" class="metric-card is-interactive p-4 w-full text-left hover:bg-slate-50 status-filter"
-        data-prefix="5" aria-pressed="false" aria-label="Filter to 5xx responses" onclick="filterRequests('5')">
-        <div class="eyebrow text-red-700">5XX</div>
-        <div class="text-2xl font-semibold tracking-tight tabular-nums mt-1 text-red-700">{{ five_xx }}</div>
-      </button>
-    </div>
-    <span id="filter-status" class="sr-only" aria-live="polite"></span>
-
-    <div class="content-card overflow-hidden">
-      <div class="border-b border-slate-200 bg-slate-50 px-4 py-2 caption">
-        Latest lines from the kamal proxy access log (not a fixed time window)
-      </div>
-
-      {% if entries.is_empty() %}
-      <div class="px-6 py-12 text-center">
-        <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
-          <svg class="icon h-5 w-5"><use href="#i-globe"/></svg>
-        </div>
-        <h2 class="section-title text-slate-700">No recent proxy requests</h2>
-        <p class="mt-1 caption">Proxy logs may be empty, or access logging isn't enabled for the proxy.</p>
-      </div>
-      {% else %}
-      <div class="overflow-x-auto">
-        <table id="requests-table" class="w-full min-w-[720px] text-sm table-fixed">
-          <thead>
-            <tr class="eyebrow border-b border-slate-200 bg-slate-50 text-left">
-              <th class="w-36 px-4 py-2.5 font-semibold">Time</th>
-              <th class="w-20 px-4 py-2.5 font-semibold">Method</th>
-              <th class="w-20 px-4 py-2.5 font-semibold">Status</th>
-              <th class="w-48 px-4 py-2.5 font-semibold">Host</th>
-              <th class="px-4 py-2.5 font-semibold">Path</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100 mono text-xs">
-            {% for e in entries %}
-            <tr class="hover:bg-slate-50" data-status="{{ e.status }}">
-              <td class="px-4 py-1.5 text-slate-500 tabular-nums truncate">{{ e.time }}</td>
-              <td class="px-4 py-1.5 font-semibold text-slate-700">{{ e.method }}</td>
-              <td class="px-4 py-1.5 tabular-nums">
-                {% if e.status.starts_with("2") %}<span class="inline-flex items-center gap-1.5 text-emerald-700"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
-                {% else if e.status.starts_with("3") %}<span class="inline-flex items-center gap-1.5 text-slate-500"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
-                {% else if e.status.starts_with("4") %}<span class="inline-flex items-center gap-1.5 text-amber-700"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
-                {% else if e.status.starts_with("5") %}<span class="inline-flex items-center gap-1.5 text-red-700"><span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true"></span>{{ e.status }}</span>
-                {% else %}<span class="text-slate-600">{{ e.status }}</span>{% endif %}
-              </td>
-              <td class="px-4 py-1.5 text-slate-600 truncate">{{ e.host }}</td>
-              <td class="px-4 py-1.5 truncate text-slate-700" title="{{ e.path }}">{{ e.path }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-    </div>
-  </div>
-
-  <p class="caption">Requests are approximated from proxy logs. For full observability, integrate your app metrics. Click a status card to filter the table.</p>
-</section>
+</div>
 
 <script>
-let activeFilter = null;
+(function () {
+  var active = null;
 
-function renderFilter() {
-  const rows = document.querySelectorAll('#requests-table tbody tr');
-  const cards = document.querySelectorAll('.status-filter');
-  const status = document.getElementById('filter-status');
-
-  cards.forEach(c => {
-    c.classList.remove('ring-2', 'ring-offset-2', 'ring-blue-600');
-    c.setAttribute('aria-pressed', 'false');
-  });
-
-  if (!activeFilter) {
-    rows.forEach(r => r.style.display = '');
-    if (status) status.textContent = 'Showing all requests.';
-    return;
+  function apply() {
+    var input = document.getElementById("traffic-search");
+    var query = input ? input.value.trim().toLowerCase() : "";
+    var rows = document.querySelectorAll("#requests-table tbody tr");
+    document.querySelectorAll("[data-prefix]").forEach(function (card) {
+      var prefix = card.getAttribute("data-prefix");
+      var on = active === null ? prefix === "" : prefix === active;
+      card.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    var shown = 0;
+    rows.forEach(function (row) {
+      var status = row.getAttribute("data-status") || "";
+      var text = (row.getAttribute("data-search") || "").toLowerCase();
+      var statusOk = !active || status.indexOf(active) === 0;
+      var textOk = !query || text.indexOf(query) !== -1;
+      var visible = statusOk && textOk;
+      row.hidden = !visible;
+      if (visible) shown += 1;
+    });
+    var live = document.getElementById("traffic-status");
+    if (live) {
+      if (!active && !query) live.textContent = "";
+      else live.textContent = "Showing " + shown + " requests.";
+    }
   }
 
-  const target = Array.from(cards).find(c => c.dataset.prefix === activeFilter);
-  if (target) {
-    target.classList.add('ring-2', 'ring-offset-2', 'ring-blue-600');
-    target.setAttribute('aria-pressed', 'true');
-  }
-
-  let shown = 0;
-  rows.forEach(row => {
-    const st = row.dataset.status || '';
-    const match = st.startsWith(activeFilter);
-    row.style.display = match ? '' : 'none';
-    if (match) shown++;
+  document.addEventListener("click", function (event) {
+    var card = event.target.closest ? event.target.closest("[data-prefix]") : null;
+    if (!card || !card.closest("#traffic")) return;
+    var prefix = card.getAttribute("data-prefix");
+    if (prefix === "") active = null;
+    else active = active === prefix ? null : prefix;
+    apply();
   });
-  if (status) status.textContent = 'Showing ' + shown + ' ' + activeFilter + 'xx requests.';
-}
-
-function filterRequests(prefix) {
-  activeFilter = (prefix === null || activeFilter === prefix) ? null : prefix;
-  renderFilter();
-}
-
-// After the Refresh fragment swap, re-apply the active filter so it doesn't silently reset.
-document.body.addEventListener('htmx:afterSwap', function (e) {
-  if (e.target && e.target.id === 'requests-content') renderFilter();
-});
+  document.addEventListener("input", function (event) {
+    if (event.target && event.target.id === "traffic-search") apply();
+  });
+  document.body.addEventListener("htmx:afterSwap", function (event) {
+    if (event.target && event.target.id === "traffic") apply();
+  });
+})();
 </script>
 {% endblock %}

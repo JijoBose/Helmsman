@@ -1,17 +1,11 @@
-use askama::Template;
-use axum::{extract::State, response::Html};
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde_yaml::Value;
-use std::{fmt, fs, io::ErrorKind, path::Path};
-use tokio::process::Command;
+use tokio::task::JoinSet;
 
 use crate::{
-    kamal::{kamal_command, strip_ansi},
-    state::AppState,
+    deploy_config::DeploySummary,
+    kamal::{self, KamalQuery, strip_ansi},
 };
-
-use super::{AppError, render};
 
 #[derive(Debug, Clone)]
 pub struct ServerStatus {
@@ -24,6 +18,7 @@ pub struct ServerStatus {
 pub struct ContainerStatus {
     pub name: String,
     pub role: String,
+    pub host: String,
     pub container_id: String,
     pub status_label: String,
     pub status_detail: String,
@@ -33,164 +28,167 @@ pub struct ContainerStatus {
     pub running_for: String,
 }
 
-#[derive(Template)]
-#[template(path = "servers.html")]
-struct ServersTemplate {
-    servers: Vec<ServerStatus>,
-    empty: bool,
-    error: Option<String>,
-    total_hosts: usize,
-    total_containers: usize,
-    running_containers: usize,
-}
-
-#[derive(Template)]
-#[template(path = "servers_page.html")]
-struct ServersPageTemplate {
-    active: &'static str,
-    servers: Vec<ServerStatus>,
-    empty: bool,
-    error: Option<String>,
-    total_hosts: usize,
-    total_containers: usize,
-    running_containers: usize,
-}
-
-pub async fn page(State(state): State<AppState>) -> Result<Html<String>, AppError> {
-    let project_path = state.project_path.lock().await.clone();
-    let deploy_config_path = state.deploy_config_path.lock().await.clone();
-    let (servers, error, total_hosts, total_containers, running_containers) =
-        fetch_server_status(&project_path, &deploy_config_path).await;
-
-    render(ServersPageTemplate {
-        active: "servers",
-        empty: servers.is_empty(),
-        servers,
-        error,
-        total_hosts,
-        total_containers,
-        running_containers,
-    })
-}
-
-pub async fn status_fragment(State(state): State<AppState>) -> Result<Html<String>, AppError> {
-    let project_path = state.project_path.lock().await.clone();
-    let deploy_config_path = state.deploy_config_path.lock().await.clone();
-    let (servers, error, total_hosts, total_containers, running_containers) =
-        fetch_server_status(&project_path, &deploy_config_path).await;
-
-    render(ServersTemplate {
-        empty: servers.is_empty(),
-        servers,
-        error,
-        total_hosts,
-        total_containers,
-        running_containers,
-    })
+#[derive(Debug, Clone)]
+pub struct FleetReport {
+    pub servers: Vec<ServerStatus>,
+    pub error: Option<String>,
+    pub warnings: Vec<String>,
+    pub hosts: usize,
+    pub total: usize,
+    pub running: usize,
+    pub stopped: usize,
+    pub roles: Vec<String>,
 }
 
 pub async fn fetch_server_status(
     project_path: &std::path::Path,
     deploy_config_path: &std::path::Path,
-) -> (Vec<ServerStatus>, Option<String>, usize, usize, usize) {
-    let mut outputs = Vec::new();
+) -> FleetReport {
+    let mut jobs = vec![KamalQuery::ProxyDetails, KamalQuery::AppDetails];
     let mut errors = Vec::new();
 
-    let mut command = kamal_command(project_path);
-    command.arg("app").arg("details");
-
-    match run_status_command(command).await {
-        Ok(output) => outputs.push(output),
-        Err(error) => errors.push(format_status_error(&error)),
+    for name in DeploySummary::accessory_names(deploy_config_path) {
+        match KamalQuery::accessory_details(&name) {
+            Ok(query) => jobs.push(query),
+            Err(error) => errors.push(error.user_message()),
+        }
     }
 
-    for accessory in accessory_names(deploy_config_path) {
-        let mut command = kamal_command(project_path);
-        command.arg("accessory").arg("details").arg(&accessory);
-
-        match run_status_command(command).await {
-            Ok(output) => outputs.push(output),
-            Err(error) => {
-                errors.push(format!("Accessory `{accessory}`: {}", format_status_error(&error)))
+    let mut set = JoinSet::new();
+    for query in jobs {
+        let project = project_path.to_path_buf();
+        set.spawn(async move {
+            let label = query.label();
+            match kamal::output(&project, &query).await {
+                Ok(output) if output.success => Ok(output.text),
+                Ok(output) => Err(failed_status(&label, &output.text)),
+                Err(error) => Err(error.user_message()),
             }
+        });
+    }
+
+    let mut outputs = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok(Ok(text)) => outputs.push(text),
+            Ok(Err(error)) => errors.push(error),
+            Err(error) => errors.push(format!("A status check stopped unexpectedly: {error}")),
         }
     }
 
     let servers = parse_app_details(&outputs.join("\n"));
-    let error = if servers.is_empty() && !errors.is_empty() {
-        Some(errors.join("\n\n"))
+    let errors = unique_strings(errors);
+    let joined = summarize_failures(&errors);
+    let (error, warnings) = if servers.is_empty() {
+        let error = if joined.trim().is_empty() {
+            None
+        } else {
+            Some(joined)
+        };
+        (error, Vec::new())
     } else {
-        None
+        (None, errors)
     };
+    let (hosts, total, running, stopped, roles) = compute_stats(&servers);
 
-    let (total_hosts, total_containers, running_containers) = compute_stats(&servers);
-
-    (servers, error, total_hosts, total_containers, running_containers)
+    FleetReport {
+        servers,
+        error,
+        warnings,
+        hosts,
+        total,
+        running,
+        stopped,
+        roles,
+    }
 }
 
-fn compute_stats(servers: &[ServerStatus]) -> (usize, usize, usize) {
-    let total_hosts = servers.len();
-    let mut total_containers = 0;
+fn failed_status(label: &str, output: &str) -> String {
+    let detail = kamal::failure_detail(output);
+
+    if detail.is_empty() {
+        format!("{label} failed without any output.")
+    } else {
+        format!("{label} failed:\n{detail}")
+    }
+}
+
+fn summarize_failures(errors: &[String]) -> String {
+    if errors.is_empty() {
+        return String::new();
+    }
+
+    if errors.iter().all(|error| is_reachability_failure(error)) {
+        let reason = if errors
+            .iter()
+            .any(|error| error.contains("Connection refused"))
+        {
+            "The connection was refused."
+        } else if errors
+            .iter()
+            .any(|error| error.to_ascii_lowercase().contains("timed out"))
+        {
+            "The connection timed out."
+        } else if errors.iter().any(|error| {
+            error.contains("Permission denied") || error.contains("Authentication failed")
+        }) {
+            "SSH authentication was refused."
+        } else if errors.iter().any(|error| {
+            error.contains("No route to host") || error.contains("Network is unreachable")
+        }) {
+            "There is no route to the servers."
+        } else {
+            "The SSH connection failed."
+        };
+
+        return format!("Couldn't reach the servers. Nothing was changed. {reason}");
+    }
+
+    errors.join("\n\n")
+}
+
+fn is_reachability_failure(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("connection refused")
+        || lower.contains("timed out")
+        || lower.contains("permission denied")
+        || lower.contains("authentication failed")
+        || lower.contains("connection reset")
+        || lower.contains("no route to host")
+        || lower.contains("network is unreachable")
+        || lower.contains("could not resolve")
+        || lower.contains("name or service not known")
+}
+
+fn unique_strings(values: Vec<String>) -> Vec<String> {
+    let mut unique = Vec::new();
+    for value in values {
+        if !value.is_empty() && !unique.contains(&value) {
+            unique.push(value);
+        }
+    }
+    unique
+}
+
+fn compute_stats(servers: &[ServerStatus]) -> (usize, usize, usize, usize, Vec<String>) {
+    let hosts = servers.len();
+    let mut total = 0;
     let mut running = 0;
-    for s in servers {
-        total_containers += s.container_count;
-        for c in &s.containers {
-            if c.status_label == "Running" {
+    let mut roles = Vec::new();
+
+    for server in servers {
+        total += server.container_count;
+        for container in &server.containers {
+            if container.status_label == "Running" {
                 running += 1;
+            }
+            if !container.role.is_empty() && !roles.contains(&container.role) {
+                roles.push(container.role.clone());
             }
         }
     }
-    (total_hosts, total_containers, running)
-}
 
-enum StatusCommandError {
-    Io(std::io::Error),
-    Failed(String),
-}
-
-impl fmt::Display for StatusCommandError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            StatusCommandError::Io(error) => write!(formatter, "{error}"),
-            StatusCommandError::Failed(output) => formatter.write_str(output),
-        }
-    }
-}
-
-async fn run_status_command(mut command: Command) -> Result<String, StatusCommandError> {
-    let output = command.output().await.map_err(StatusCommandError::Io)?;
-    let mut combined = String::new();
-    combined.push_str(&String::from_utf8_lossy(&output.stdout));
-    combined.push_str(&String::from_utf8_lossy(&output.stderr));
-
-    if !output.status.success() {
-        return Err(StatusCommandError::Failed(format_failed_status(&combined)));
-    }
-
-    Ok(combined)
-}
-
-fn format_status_error(error: &StatusCommandError) -> String {
-    match error {
-        StatusCommandError::Io(error) if error.kind() == ErrorKind::NotFound => {
-            "Could not find the `kamal` executable. Start Helmsman from a shell where `command -v kamal` works.".to_string()
-        }
-        _ => error.to_string(),
-    }
-}
-
-fn format_failed_status(output: &str) -> String {
-    let output = strip_ansi(output);
-    let output = output.trim();
-
-    if output.is_empty() {
-        "kamal app details exited unsuccessfully without output.".to_string()
-    } else {
-        format!(
-            "kamal app details failed:\n{}",
-            output.lines().take(10).collect::<Vec<_>>().join("\n")
-        )
-    }
+    (hosts, total, running, total.saturating_sub(running), roles)
 }
 
 static DETAIL_COLUMNS_RE: Lazy<Regex> =
@@ -225,6 +223,10 @@ fn parse_app_details(output: &str) -> Vec<ServerStatus> {
     servers.retain(|server| !server.containers.is_empty());
     for server in &mut servers {
         server.container_count = server.containers.len();
+        let host = server.hostname.clone();
+        for container in &mut server.containers {
+            container.host = host.clone();
+        }
     }
 
     servers
@@ -242,7 +244,10 @@ fn parse_host_line(line: &str) -> Option<String> {
 }
 
 fn server_index(servers: &mut Vec<ServerStatus>, hostname: &str) -> usize {
-    if let Some(index) = servers.iter().position(|server| server.hostname == hostname) {
+    if let Some(index) = servers
+        .iter()
+        .position(|server| server.hostname == hostname)
+    {
         index
     } else {
         servers.push(ServerStatus {
@@ -271,6 +276,7 @@ fn parse_container_row(line: &str) -> Option<ContainerStatus> {
     Some(ContainerStatus {
         name: columns[6].to_string(),
         role: container_role(columns[6]),
+        host: String::new(),
         container_id: columns[0].to_string(),
         status_class: status_class(&status_label),
         status_label,
@@ -293,16 +299,20 @@ fn status_label(status: &str) -> String {
     } else if status.starts_with("Restarting") {
         "Restarting".to_string()
     } else {
-        status.split_whitespace().next().unwrap_or("Unknown").to_string()
+        status
+            .split_whitespace()
+            .next()
+            .unwrap_or("Unknown")
+            .to_string()
     }
 }
 
 fn status_class(status: &str) -> String {
     match status {
-        "Running" => "bg-emerald-100 text-emerald-800 ring-emerald-200",
-        "Stopped" => "bg-red-100 text-red-800 ring-red-200",
-        "Restarting" => "bg-amber-100 text-amber-800 ring-amber-200",
-        _ => "bg-slate-100 text-slate-700 ring-slate-200",
+        "Running" => "pill-success",
+        "Stopped" => "pill-danger",
+        "Restarting" => "pill-warning",
+        _ => "pill-neutral",
     }
     .to_string()
 }
@@ -322,27 +332,6 @@ fn container_role(name: &str) -> String {
         [_, role] => (*role).to_string(),
         _ => parts[parts.len() - 2].to_string(),
     }
-}
-
-fn accessory_names(deploy_config_path: &Path) -> Vec<String> {
-    let Ok(contents) = fs::read_to_string(deploy_config_path) else {
-        return Vec::new();
-    };
-    let Ok(config) = serde_yaml::from_str::<Value>(&contents) else {
-        return Vec::new();
-    };
-
-    config
-        .get("accessories")
-        .and_then(Value::as_mapping)
-        .map(|accessories| {
-            accessories
-                .keys()
-                .filter_map(Value::as_str)
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -366,6 +355,8 @@ e9d1340c689b   timescale/timescaledb:latest-pg18   "docker-entrypoint.sh"   2 we
         assert_eq!(servers[0].hostname, "159.198.68.206");
         assert_eq!(servers[0].container_count, 2);
         assert_eq!(servers[0].containers[0].role, "web");
+        assert_eq!(servers[0].containers[0].host, "159.198.68.206");
         assert_eq!(servers[0].containers[1].role, "db");
+        assert_eq!(servers[0].containers[1].status_class, "pill-success");
     }
 }
