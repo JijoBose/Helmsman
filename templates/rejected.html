@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+
+{% block title %}View only - Helmsman{% endblock %}
+
+{% block content %}
+<div class="stack">
+  <section class="banner banner-warn">
+    <p class="banner-kicker">View only</p>
+    <p class="banner-title">Helmsman does not run that command.</p>
+    <p class="banner-detail">Deploy, rollback, and editing deploy.yml are turned off. You can still inspect containers, logs, traffic, and the audit log.</p>
+  </section>
+  <p><a class="btn btn-primary" href="/">Back to overview</a></p>
+</div>
+{% endblock %}

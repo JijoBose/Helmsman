@@ -1,0 +1,7 @@
+{% if let Some(message) = error %}
+<pre class="error-block" role="alert">{{ message }}</pre>
+{% else if lines.is_empty() %}
+<p class="log-empty">No log lines came back.</p>
+{% else %}
+{% for line in lines %}<pre class="log-line">{{ line }}</pre>{% endfor %}
+{% endif %}

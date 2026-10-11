@@ -1,0 +1,130 @@
+{% extends "layout.html" %}
+
+{% block title %}Overview - Helmsman{% endblock %}
+
+{% block content %}
+<div class="stack-lg">
+  <header class="page-head">
+    <div>
+      <h1>Overview</h1>
+      <p class="lede">How {% if !summary.service.is_empty() %}{{ summary.service }}{% else %}this project{% endif %} is doing right now. This screen only looks.</p>
+    </div>
+    <button class="btn btn-secondary btn-sm" hx-get="/overview/status" hx-target="#health" hx-swap="innerHTML" hx-disabled-elt="this">
+      <span class="spinner htmx-indicator" aria-hidden="true"></span>
+      <svg class="icon htmx-indicator-hide" aria-hidden="true"><use href="#i-refresh-cw"/></svg>
+      Refresh
+    </button>
+  </header>
+
+  {% if !summary.exists %}
+  <section class="banner banner-warn">
+    <p class="banner-kicker">No config</p>
+    <p class="banner-title">No deploy.yml in this project.</p>
+    <p class="banner-detail">Helmsman looked in the project root, then config/deploy.yml, then other folders. Add a Kamal config and refresh.</p>
+  </section>
+  {% else if let Some(message) = summary.parse_error %}
+  <section class="banner banner-warn">
+    <p class="banner-kicker">Config</p>
+    <p class="banner-title">deploy.yml could not be read as YAML.</p>
+    <p class="banner-detail">{{ message }}</p>
+  </section>
+  {% endif %}
+
+  <div id="health" hx-get="/overview/status" hx-trigger="load" hx-swap="innerHTML" class="stack">
+    <section class="banner banner-neutral" role="status">
+      <p class="banner-kicker">Checking</p>
+      <p class="banner-title">Looking at your servers…</p>
+      <p class="banner-detail">Running read-only Kamal detail commands. Nothing is restarted or deployed.</p>
+    </section>
+  </div>
+
+  <section class="card card-pad">
+    <h2>This project</h2>
+    <dl class="kv">
+      <dt>Service</dt>
+      <dd>{% if summary.service.is_empty() %}Not set{% else %}{{ summary.service }}{% endif %}</dd>
+      <dt>Image</dt>
+      <dd class="mono" title="{{ summary.image }}">{% if summary.image_short.is_empty() %}Not set{% else %}{{ summary.image_short }}{% endif %}</dd>
+      {% if !summary.registry.is_empty() %}
+      <dt>Registry</dt>
+      <dd>{{ summary.registry }}</dd>
+      {% endif %}
+      <dt>Servers</dt>
+      <dd>
+        {% if summary.hosts.is_empty() %}
+        <span class="muted">None listed</span>
+        {% else %}
+        <span class="cluster">
+          {% for host in summary.hosts %}<span class="chip mono">{{ host }}</span>{% endfor %}
+        </span>
+        {% endif %}
+      </dd>
+      {% if !summary.roles.is_empty() %}
+      <dt>Roles</dt>
+      <dd><span class="cluster">{% for role in summary.roles %}<span class="chip">{{ role }}</span>{% endfor %}</span></dd>
+      {% endif %}
+      <dt>Accessories</dt>
+      <dd>
+        {% if summary.accessories.is_empty() %}
+        <span class="muted">None</span>
+        {% else %}
+        <span class="cluster">{% for name in summary.accessories %}<span class="chip">{{ name }}</span>{% endfor %}</span>
+        {% endif %}
+      </dd>
+      {% if !summary.proxy_hosts.is_empty() %}
+      <dt>Public host</dt>
+      <dd>
+        <span class="cluster">
+          {% for host in summary.proxy_hosts %}
+            {% if host.href.is_empty() %}
+            <span class="mono">{{ host.label }}</span>
+            {% else %}
+            <a href="{{ host.href }}" rel="noreferrer">{{ host.label }}</a>
+            {% endif %}
+          {% endfor %}
+        </span>
+      </dd>
+      {% endif %}
+      {% if !summary.last_modified.is_empty() %}
+      <dt>Config edited</dt>
+      <dd>{{ summary.last_modified }}</dd>
+      {% endif %}
+    </dl>
+  </section>
+
+  <div class="jumps">
+    <a class="card jump" href="/containers"><strong>Containers</strong><span>See what is running on each host</span></a>
+    <a class="card jump" href="/logs"><strong>Logs</strong><span>Read recent app output</span></a>
+    <a class="card jump" href="/requests"><strong>Traffic</strong><span>Recent requests from the proxy</span></a>
+  </div>
+
+  <div class="split-2">
+    <section class="card card-pad">
+      <div class="split">
+        <h2>Recorded on this computer</h2>
+        <a href="/history">View all</a>
+      </div>
+      {% if runs.is_empty() %}
+      <p class="muted" style="margin-top: 0.7rem">No deploys have been recorded here. Helmsman does not start them.</p>
+      {% else %}
+      <ul class="run-list">
+        {% for run in runs %}
+        <li>
+          <a href="/history/{{ run.id }}">#{{ run.id }}</a>
+          <span class="muted">{{ run.started_at }}</span>
+          <span class="muted">{{ run.duration }}</span>
+          {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
+          {% else if run.exit_code == "running" %}<span class="pill pill-neutral">In progress</span>
+          {% else %}<span class="pill pill-danger">Failed</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </section>
+    <section class="card card-pad">
+      <h2>Shipping a new version</h2>
+      <p class="muted" style="margin-top: 0.45rem">Run <code>kamal deploy</code> in this project directory. Helmsman will not run it for you. Come back and refresh when it finishes.</p>
+    </section>
+  </div>
+</div>
+{% endblock %}

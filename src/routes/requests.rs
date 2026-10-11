@@ -2,22 +2,27 @@ use askama::Template;
 use axum::extract::State;
 use axum::response::Html;
 
-use crate::kamal::{kamal_command, strip_ansi};
+use crate::kamal::{self, KamalQuery};
 
-use super::{AppError, render};
+use super::{AppError, Chrome, render};
 
 #[derive(Template)]
 #[template(path = "requests.html")]
 struct RequestsTemplate {
-    active: &'static str,
-    service: String,
+    chrome: Chrome,
+}
+
+#[derive(Template)]
+#[template(path = "requests_list.html")]
+struct RequestsListTemplate {
     count: String,
-    reqs_per_sec: String,
     ok_2xx: String,
     three_xx: String,
     four_xx: String,
     five_xx: String,
     entries: Vec<RequestEntry>,
+    empty: bool,
+    error: Option<String>,
 }
 
 #[derive(Debug)]
@@ -30,70 +35,67 @@ pub struct RequestEntry {
 }
 
 pub async fn page(State(state): State<crate::state::AppState>) -> Result<Html<String>, AppError> {
+    let chrome = super::chrome(&state, "requests").await;
+    render(RequestsTemplate { chrome })
+}
+
+pub async fn list(State(state): State<crate::state::AppState>) -> Result<Html<String>, AppError> {
     let project_path = state.project_path.lock().await.clone();
-    let deploy_config_path = state.deploy_config_path.lock().await.clone();
 
-    let service = read_service(&deploy_config_path);
+    let fetched = match kamal::output(&project_path, &KamalQuery::proxy_logs(300)).await {
+        Ok(output) if output.success => Ok(output.text),
+        Ok(output) => Err({
+            let detail = kamal::failure_detail(&output.text);
+            if detail.is_empty() {
+                "Couldn't read proxy logs. Nothing was changed.".to_string()
+            } else {
+                format!("Couldn't read proxy logs. Nothing was changed.\n{detail}")
+            }
+        }),
+        Err(error) => Err(error.user_message()),
+    };
 
-    let proxy_log = fetch_proxy_logs(&project_path).await;
-    let entries = parse_proxy_requests(&proxy_log);
+    let (entries, error) = match fetched {
+        Ok(log) => (parse_proxy_requests(&log), None),
+        Err(message) => (Vec::new(), Some(message)),
+    };
 
-    // Rough counts
-    let count = entries.len().to_string();
     let mut c2 = 0u32;
     let mut c3 = 0u32;
     let mut c4 = 0u32;
     let mut c5 = 0u32;
-    for e in &entries {
-        if e.status.starts_with('2') { c2 += 1; }
-        else if e.status.starts_with('3') { c3 += 1; }
-        else if e.status.starts_with('4') { c4 += 1; }
-        else if e.status.starts_with('5') { c5 += 1; }
+    for entry in &entries {
+        if entry.status.starts_with('2') {
+            c2 += 1;
+        } else if entry.status.starts_with('3') {
+            c3 += 1;
+        } else if entry.status.starts_with('4') {
+            c4 += 1;
+        } else if entry.status.starts_with('5') {
+            c5 += 1;
+        }
     }
 
-    render(RequestsTemplate {
-        active: "requests",
-        service,
-        count,
-        reqs_per_sec: if entries.len() > 10 { "0.01/s" } else { "—" }.to_string(),
+    render(RequestsListTemplate {
+        count: entries.len().to_string(),
         ok_2xx: c2.to_string(),
         three_xx: c3.to_string(),
         four_xx: c4.to_string(),
         five_xx: c5.to_string(),
+        empty: entries.is_empty(),
         entries,
+        error,
     })
-}
-
-fn read_service(config_path: &std::path::Path) -> String {
-    let contents = match std::fs::read_to_string(config_path) {
-        Ok(c) => c,
-        _ => return String::new(),
-    };
-    let value: serde_yaml::Value = match serde_yaml::from_str(&contents) {
-        Ok(v) => v,
-        _ => return String::new(),
-    };
-    value.get("service").and_then(serde_yaml::Value::as_str).unwrap_or("").to_string()
-}
-
-async fn fetch_proxy_logs(project_path: &std::path::Path) -> String {
-    let mut cmd = kamal_command(project_path);
-    cmd.arg("proxy").arg("logs").arg("--lines").arg("300");
-    match cmd.output().await {
-        Ok(o) => {
-            let mut out = String::from_utf8_lossy(&o.stdout).into_owned();
-            out.push_str(&String::from_utf8_lossy(&o.stderr));
-            strip_ansi(&out)
-        }
-        Err(_) => String::new(),
-    }
 }
 
 fn parse_proxy_requests(log: &str) -> Vec<RequestEntry> {
     let mut entries = Vec::new();
-    for line in log.lines().rev().take(50) {  // recent first
+    for line in log.lines().rev().take(50) {
+        // recent first
         let l = line.trim();
-        if l.is_empty() { continue; }
+        if l.is_empty() {
+            continue;
+        }
 
         let mut method = "-".to_string();
         let mut status = "-".to_string();
@@ -131,22 +133,35 @@ fn parse_proxy_requests(log: &str) -> Vec<RequestEntry> {
                                 host = s.to_string();
                             }
                         }
-                        if (key.contains("path") || key.contains("uri") || key.contains("url") || key == "request") && path == "-" {
+                        if (key.contains("path")
+                            || key.contains("uri")
+                            || key.contains("url")
+                            || key == "request")
+                            && path == "-"
+                        {
                             if let Some(s) = v.as_str() {
                                 path = s.to_string();
                             }
                         }
                     }
                 }
-                entries.push(RequestEntry { time: shorten_time(&time), method, status, host, path });
+                entries.push(RequestEntry {
+                    time: shorten_time(&time),
+                    method,
+                    status,
+                    host,
+                    path,
+                });
                 continue;
             }
         }
 
         // Fallback heuristic for plain text access logs
         for token in l.split_whitespace() {
-            let t = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != ':' && c != '-');
-            if ["GET","POST","HEAD","PUT","DELETE","PATCH","OPTIONS"].contains(&t) {
+            let t = token.trim_matches(|c: char| {
+                !c.is_alphanumeric() && c != '/' && c != '.' && c != ':' && c != '-'
+            });
+            if ["GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"].contains(&t) {
                 method = t.to_string();
             }
             if token.len() >= 3 && token.len() <= 3 && token.chars().all(|c| c.is_ascii_digit()) {
@@ -155,14 +170,17 @@ fn parse_proxy_requests(log: &str) -> Vec<RequestEntry> {
                     status = token.to_string();
                 }
             }
-            if host == "-" && (token.contains('.') && (token.ends_with(".com") || token.ends_with(".io") || token.contains(':'))) {
+            if host == "-"
+                && (token.contains('.')
+                    && (token.ends_with(".com") || token.ends_with(".io") || token.contains(':')))
+            {
                 host = token.to_string();
             }
         }
 
         // Extract path after seeing a method
         if let Some(pos) = l.find(" /") {
-            let rest = &l[pos+1..];
+            let rest = &l[pos + 1..];
             let candidate = rest.split_whitespace().next().unwrap_or("");
             if candidate.starts_with('/') {
                 path = candidate.to_string();
@@ -171,7 +189,10 @@ fn parse_proxy_requests(log: &str) -> Vec<RequestEntry> {
             // last resort, try to find any /path like thing
             if let Some(pos) = l.find('/') {
                 let rest = &l[pos..];
-                let candidate: String = rest.chars().take_while(|&c| !c.is_whitespace() && c != '"').collect();
+                let candidate: String = rest
+                    .chars()
+                    .take_while(|&c| !c.is_whitespace() && c != '"')
+                    .collect();
                 if candidate.starts_with('/') {
                     path = candidate;
                 }
@@ -180,10 +201,20 @@ fn parse_proxy_requests(log: &str) -> Vec<RequestEntry> {
 
         if path == "-" && !l.is_empty() {
             // don't set whole line
-            path = l.split_whitespace().find(|w| w.starts_with('/')).unwrap_or("-").to_string();
+            path = l
+                .split_whitespace()
+                .find(|w| w.starts_with('/'))
+                .unwrap_or("-")
+                .to_string();
         }
 
-        entries.push(RequestEntry { time: shorten_time(&time), method, status, host, path });
+        entries.push(RequestEntry {
+            time: shorten_time(&time),
+            method,
+            status,
+            host,
+            path,
+        });
     }
     entries
 }
@@ -192,7 +223,10 @@ fn shorten_time(t: &str) -> String {
     // If it's an ISO timestamp, return just the time part
     if let Some(tpos) = t.find('T') {
         let after = &t[tpos + 1..];
-        let cleaned = after.split(|c| c == '.' || c == '+' || c == 'Z').next().unwrap_or(after);
+        let cleaned = after
+            .split(|c| c == '.' || c == '+' || c == 'Z')
+            .next()
+            .unwrap_or(after);
         if cleaned.contains(':') {
             return cleaned.to_string();
         }

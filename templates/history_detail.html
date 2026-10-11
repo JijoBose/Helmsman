@@ -3,47 +3,32 @@
 {% block title %}Run #{{ run.id }} - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-    <div class="min-w-0">
-      <nav class="text-xs text-slate-500" aria-label="Breadcrumb">
-        <a href="/history" class="hover:text-slate-900">History</a>
-        <span class="text-slate-300" aria-hidden="true">/</span>
-        <span class="text-slate-600">Run #{{ run.id }}</span>
-      </nav>
-      <h1 class="page-title mt-1">Run #{{ run.id }}</h1>
-      <p class="mt-1 truncate text-sm text-slate-600" title="{{ run.project_path }}">{{ run.project_path }}</p>
+<div class="stack-lg">
+  <header class="page-head">
+    <div>
+      <p class="muted"><a href="/history">Past deploys</a> / #{{ run.id }}</p>
+      <h1>Run #{{ run.id }}</h1>
+      <p class="lede truncate" title="{{ run.project_path }}">{{ run.project_path }}</p>
     </div>
-    <a href="/history" class="btn btn-secondary btn-sm shrink-0">Back to history</a>
-  </div>
+    <a class="btn btn-secondary btn-sm" href="/history">Back</a>
+  </header>
 
-  <dl class="content-card grid gap-4 p-4 text-sm sm:grid-cols-3">
-    <div>
-      <dt class="eyebrow">Started</dt>
-      <dd class="mt-1 text-slate-950 tabular-nums">{{ run.started_at }}</dd>
-    </div>
-    <div>
-      <dt class="eyebrow">Result</dt>
-      <dd class="mt-1">
-        {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
-        {% else if run.exit_code == "running" %}<span class="pill pill-neutral">Running</span>
-        {% else %}<span class="pill pill-danger">Failed · exit {{ run.exit_code }}</span>{% endif %}
-      </dd>
-    </div>
-    <div>
-      <dt class="eyebrow">Duration</dt>
-      <dd class="mt-1 text-slate-950 tabular-nums">{{ run.duration }}</dd>
-    </div>
+  <dl class="card card-pad kv">
+    <dt>Started</dt>
+    <dd>{{ run.started_at }}</dd>
+    <dt>Result</dt>
+    <dd>
+      {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
+      {% else if run.exit_code == "running" %}<span class="pill pill-neutral">In progress</span>
+      {% else %}<span class="pill pill-danger">Failed · {{ run.exit_code }}</span>{% endif %}
+    </dd>
+    <dt>Duration</dt>
+    <dd>{{ run.duration }}</dd>
   </dl>
 
-  <div class="content-card overflow-hidden">
-    <div class="terminal-bar">
-      <span class="inline-flex items-center gap-1.5">
-        <svg class="icon h-3.5 w-3.5" aria-hidden="true"><use href="#i-terminal"/></svg>
-        <span class="mono">run log</span>
-      </span>
-    </div>
-    <pre class="terminal max-h-[42rem] overflow-auto p-4 mono text-xs" role="log" aria-label="Run #{{ run.id }} log">{{ run.log }}</pre>
-  </div>
-</section>
+  <section class="card" style="overflow: hidden">
+    <div class="card-head"><h2>Log</h2></div>
+    <pre class="terminal" role="log">{{ run.log }}</pre>
+  </section>
+</div>
 {% endblock %}

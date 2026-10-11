@@ -1,0 +1,37 @@
+<section class="banner banner-{{ tone }}" role="status">
+  <p class="banner-kicker">{{ kicker }}</p>
+  <p class="banner-title">{{ title }}</p>
+  <p class="banner-detail">{{ detail }}</p>
+</section>
+
+<div class="stats">
+  <div class="card stat"><div class="stat-value">{{ running }}</div><div class="stat-label">Running</div></div>
+  <div class="card stat"><div class="stat-value">{{ stopped }}</div><div class="stat-label">Not running</div></div>
+  <div class="card stat"><div class="stat-value">{{ hosts }}</div><div class="stat-label">{% if hosts == 1 %}Host{% else %}Hosts{% endif %}</div></div>
+  <div class="card stat"><div class="stat-value">{{ total }}</div><div class="stat-label">{% if total == 1 %}Container{% else %}Containers{% endif %}</div></div>
+</div>
+
+{% if let Some(message) = error %}
+<pre class="error-block">{{ message }}</pre>
+{% endif %}
+{% for warning in warnings %}
+<pre class="warning-block">{{ warning }}</pre>
+{% endfor %}
+
+{% if !preview.is_empty() %}
+<section class="card">
+  <div class="card-head">
+    <h2>{{ preview_title }}</h2>
+    <a href="/containers">See all</a>
+  </div>
+  <ul class="preview">
+    {% for container in preview %}
+    <li>
+      <span class="pill {{ container.status_class }}"><span class="pill-dot" aria-hidden="true"></span>{{ container.status_label }}</span>
+      <span class="name">{{ container.name }}</span>
+      <span class="muted">{{ container.role }} · {{ container.host }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

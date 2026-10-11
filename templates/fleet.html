@@ -1,0 +1,35 @@
+<div class="stats">
+  <div class="card stat"><div class="stat-value">{{ running }}</div><div class="stat-label">Running</div></div>
+  <div class="card stat"><div class="stat-value">{{ stopped }}</div><div class="stat-label">Not running</div></div>
+  <div class="card stat"><div class="stat-value">{{ hosts }}</div><div class="stat-label">{% if hosts == 1 %}Host{% else %}Hosts{% endif %}</div></div>
+  <div class="card stat"><div class="stat-value">{{ total }}</div><div class="stat-label">{% if total == 1 %}Container{% else %}Containers{% endif %}</div></div>
+</div>
+
+{% if roles.len() > 1 %}
+<div class="cluster" role="group" aria-label="Filter by role">
+  <button type="button" class="chip chip-button" data-role-filter="" aria-pressed="true">All roles</button>
+  {% for role in roles %}
+  <button type="button" class="chip chip-button" data-role-filter="{{ role }}" aria-pressed="false">{{ role }}</button>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if let Some(message) = error %}
+<pre class="error-block" role="alert">{{ message }}</pre>
+{% endif %}
+{% for warning in warnings %}
+<pre class="warning-block">{{ warning }}</pre>
+{% endfor %}
+
+{% if empty %}
+<div class="card empty">
+  <h2>No containers reported</h2>
+  <p class="muted">If the app should be up, check deploy.yml and that this computer can reach the servers.</p>
+</div>
+{% else if view == "hosts" %}
+{% include "servers.html" %}
+{% else %}
+<div class="card table-wrap">
+  {% include "containers_table.html" %}
+</div>
+{% endif %}

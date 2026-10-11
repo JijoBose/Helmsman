@@ -1,44 +1,27 @@
-{% if let Some(message) = error %}
-<div class="m-4 error-block" role="alert">{{ message }}</div>
-{% else %}
-  {% if empty %}
-  <div class="px-6 py-12 text-center">
-    <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
-      <svg class="icon h-5 w-5"><use href="#i-container"/></svg>
-    </div>
-    <h2 class="section-title text-slate-700">No running containers found</h2>
-    <p class="mt-1 caption">Run a deploy or ensure your app is started via Kamal.</p>
-  </div>
-  {% else %}
-  <table class="w-full min-w-[680px] text-sm table-fixed">
-    <thead>
-      <tr class="border-b border-slate-200 bg-slate-50 eyebrow text-left">
-        <th class="w-24 px-4 py-2.5 font-semibold">Status</th>
-        <th class="w-72 px-4 py-2.5 font-semibold">Container</th>
-        <th class="min-w-[200px] px-4 py-2.5 font-semibold">Image</th>
-        <th class="w-28 px-4 py-2.5 font-semibold">Running for</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100">
-      {% for container in containers %}
-      <tr class="hover:bg-slate-50">
-        <td class="px-4 py-2.5">
-          <span class="pill {% if container.status_label == "Running" %}pill-success{% else %}pill-neutral{% endif %}">
-            <span class="pill-dot" aria-hidden="true"></span>
-            {{ container.status_label }}
-          </span>
+<table class="data-table">
+  <thead>
+    <tr>
+      <th>Status</th>
+      <th>Container</th>
+      <th>Host</th>
+      <th>Image</th>
+      <th>For</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for server in servers %}
+      {% for container in server.containers %}
+      <tr data-container data-role="{{ container.role }}" data-search="{{ container.name }} {{ container.role }} {{ container.host }} {{ container.status_label }} {{ container.image }}">
+        <td><span class="pill {{ container.status_class }}"><span class="pill-dot" aria-hidden="true"></span>{{ container.status_label }}</span></td>
+        <td>
+          <div class="name truncate" title="{{ container.name }}">{{ container.name }}</div>
+          <div class="sub">{{ container.role }}</div>
         </td>
-        <td class="px-4 py-2.5">
-          <div class="w-full truncate font-semibold text-slate-900" title="{{ container.name }}">{{ container.name }}</div>
-          <div class="caption">{{ container.role }}</div>
-        </td>
-        <td class="px-4 py-2.5">
-          <div class="w-full mono truncate text-xs text-slate-600" title="{{ container.image }}">{{ container.image }}</div>
-        </td>
-        <td class="px-4 py-2.5 text-xs text-slate-500 tabular-nums whitespace-nowrap">{{ container.running_for }}</td>
+        <td class="mono">{{ container.host }}</td>
+        <td><div class="mono truncate" title="{{ container.image }}">{{ container.image }}</div></td>
+        <td class="muted" title="{{ container.status_detail }}">{{ container.running_for }}</td>
       </tr>
       {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-{% endif %}
+    {% endfor %}
+  </tbody>
+</table>

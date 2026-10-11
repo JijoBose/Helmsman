@@ -1,51 +1,51 @@
 {% extends "layout.html" %}
 
-{% block title %}History - Helmsman{% endblock %}
+{% block title %}Past deploys - Helmsman{% endblock %}
 
 {% block content %}
-<section class="space-y-5">
-  <div>
-    <h1 class="page-title">History</h1>
-    <p class="mt-1 caption">Recorded deploy runs, newest first.</p>
-  </div>
+<div class="stack-lg">
+  <header class="page-head">
+    <div>
+      <h1>Past deploys</h1>
+      <p class="lede">Deploys recorded on this computer. Helmsman does not start new ones.</p>
+    </div>
+    <a class="btn btn-secondary btn-sm" href="/activity">Audit log</a>
+  </header>
 
   {% if empty %}
-  <div class="empty-state">
-    <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-400" aria-hidden="true">
-      <svg class="icon h-5 w-5"><use href="#i-history"/></svg>
-    </div>
-    <h2 class="section-title text-slate-700">No deploy runs yet</h2>
-    <p class="mt-1 caption">Start a deploy to record run history here.</p>
+  <div class="card empty">
+    <h2>Nothing recorded yet</h2>
+    <p class="muted">When a deploy is recorded locally, it will show up here.</p>
   </div>
   {% else %}
-  <div class="content-card overflow-hidden overflow-x-auto">
-    <table class="w-full min-w-[640px] text-left text-sm">
-      <thead class="border-b border-slate-200 bg-slate-50 eyebrow">
+  <div class="card table-wrap">
+    <table class="data-table">
+      <thead>
         <tr>
-          <th class="px-4 py-2.5 font-semibold">Run</th>
-          <th class="px-4 py-2.5 font-semibold">Started</th>
-          <th class="px-4 py-2.5 font-semibold">Project</th>
-          <th class="px-4 py-2.5 font-semibold">Result</th>
-          <th class="px-4 py-2.5 font-semibold">Duration</th>
+          <th>Run</th>
+          <th>Started</th>
+          <th>Project</th>
+          <th>Result</th>
+          <th>Duration</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100">
+      <tbody>
         {% for run in runs %}
-        <tr class="hover:bg-slate-50">
-          <td class="px-4 py-2.5 font-medium tabular-nums"><a class="link" href="/history/{{ run.id }}">#{{ run.id }}</a></td>
-          <td class="px-4 py-2.5 text-slate-600 tabular-nums whitespace-nowrap">{{ run.started_at }}</td>
-          <td class="px-4 py-2.5 text-slate-600 truncate max-w-[280px]" title="{{ run.project_path }}">{{ run.project_path }}</td>
-          <td class="px-4 py-2.5">
+        <tr>
+          <td><a href="/history/{{ run.id }}">#{{ run.id }}</a></td>
+          <td class="muted">{{ run.started_at }}</td>
+          <td class="truncate" title="{{ run.project_path }}">{{ run.project_path }}</td>
+          <td>
             {% if run.exit_code == "0" %}<span class="pill pill-success">Success</span>
-            {% else if run.exit_code == "running" %}<span class="pill pill-neutral">Running</span>
-            {% else %}<span class="pill pill-danger">Failed · exit {{ run.exit_code }}</span>{% endif %}
+            {% else if run.exit_code == "running" %}<span class="pill pill-neutral">In progress</span>
+            {% else %}<span class="pill pill-danger">Failed · {{ run.exit_code }}</span>{% endif %}
           </td>
-          <td class="px-4 py-2.5 text-slate-600 tabular-nums whitespace-nowrap">{{ run.duration }}</td>
+          <td class="muted">{{ run.duration }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% endif %}
-</section>
+</div>
 {% endblock %}

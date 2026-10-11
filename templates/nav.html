@@ -1,0 +1,24 @@
+<a href="/" class="nav-link" {% if chrome.active == "overview" %}aria-current="page"{% endif %}>
+  <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>
+  Overview
+</a>
+<a href="/containers" class="nav-link" {% if chrome.active == "containers" %}aria-current="page"{% endif %}>
+  <svg class="icon" aria-hidden="true"><use href="#i-container"/></svg>
+  Containers
+</a>
+<a href="/logs" class="nav-link" {% if chrome.active == "logs" %}aria-current="page"{% endif %}>
+  <svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>
+  Logs
+</a>
+<a href="/requests" class="nav-link" {% if chrome.active == "requests" %}aria-current="page"{% endif %}>
+  <svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>
+  Traffic
+</a>
+<a href="/activity" class="nav-link" {% if chrome.active == "activity" %}aria-current="page"{% endif %}>
+  <svg class="icon" aria-hidden="true"><use href="#i-history"/></svg>
+  Audit
+</a>
+<a href="/config" class="nav-link" {% if chrome.active == "config" %}aria-current="page"{% endif %}>
+  <svg class="icon" aria-hidden="true"><use href="#i-file"/></svg>
+  Config
+</a>

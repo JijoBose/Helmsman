@@ -1,5 +1,4 @@
-use std::convert::Infallible;
-use std::time::Duration;
+use std::{convert::Infallible, time::Duration};
 
 use askama::Template;
 use axum::{
@@ -10,124 +9,92 @@ use axum::{
     },
 };
 use futures_core::Stream;
+use serde::Deserialize;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
-use crate::kamal::{kamal_command, strip_ansi};
+use crate::{
+    kamal::{self, KamalQuery, strip_ansi},
+    state::AppState,
+};
 
-use super::{AppError, render};
+use super::{AppError, Chrome, render};
 
-#[derive(Template)]
-#[template(path = "logs.html")]
-struct LogsTemplate {
-    active: &'static str,
-    service: String,
-    lines: Vec<String>,
-}
-
-#[derive(serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct LogsQuery {
     tail: Option<u32>,
 }
 
+#[derive(Template)]
+#[template(path = "logs.html")]
+struct LogsTemplate {
+    chrome: Chrome,
+    tail: u32,
+}
+
+#[derive(Template)]
+#[template(path = "log_lines.html")]
+struct LogLinesTemplate {
+    lines: Vec<String>,
+    error: Option<String>,
+}
+
 pub async fn page(
-    State(state): State<crate::state::AppState>,
-    Query(q): Query<LogsQuery>,
+    State(state): State<AppState>,
+    Query(query): Query<LogsQuery>,
 ) -> Result<Html<String>, AppError> {
-    let project_path = state.project_path.lock().await.clone();
-    let deploy_config_path = state.deploy_config_path.lock().await.clone();
-
-    let service = read_service(&deploy_config_path);
-
-    // If tail query, or default fetch recent logs (200 lines)
-    let line_count = q.tail.unwrap_or(150);
-    let recent = fetch_recent_logs(&project_path, line_count).await;
-
+    let chrome = super::chrome(&state, "logs").await;
     render(LogsTemplate {
-        active: "logs",
-        service,
-        lines: recent,
+        chrome,
+        tail: normalize_tail(query.tail),
     })
 }
 
-fn read_service(config_path: &std::path::Path) -> String {
-    let contents = match std::fs::read_to_string(config_path) {
-        Ok(c) => c,
-        _ => return String::new(),
-    };
-    let value: serde_yaml::Value = match serde_yaml::from_str(&contents) {
-        Ok(v) => v,
-        _ => return String::new(),
-    };
-    value
-        .get("service")
-        .and_then(serde_yaml::Value::as_str)
-        .unwrap_or("")
-        .to_string()
-}
+pub async fn recent(
+    State(state): State<AppState>,
+    Query(query): Query<LogsQuery>,
+) -> Result<Html<String>, AppError> {
+    let project_path = state.project_path.lock().await.clone();
+    let tail = normalize_tail(query.tail);
+    let (lines, error) = read_logs(&project_path, tail).await;
 
-async fn fetch_recent_logs(project_path: &std::path::Path, lines: u32) -> Vec<String> {
-    let mut cmd = kamal_command(project_path);
-    cmd.arg("app").arg("logs").arg("--lines").arg(lines.to_string());
-    let output = match cmd.output().await {
-        Ok(o) => {
-            let mut s = String::from_utf8_lossy(&o.stdout).to_string();
-            s.push_str(&String::from_utf8_lossy(&o.stderr));
-            s
-        }
-        Err(e) => format!("Failed to run kamal app logs: {}", e),
-    };
-    strip_ansi(&output)
-        .lines()
-        .map(|l| l.to_string())
-        .collect()
+    render(LogLinesTemplate { lines, error })
 }
 
 pub async fn stream(
-    State(state): State<crate::state::AppState>,
+    State(state): State<AppState>,
+    Query(query): Query<LogsQuery>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let project_path = state.project_path.lock().await.clone();
+    let tail = normalize_tail(query.tail);
 
     let stream = async_stream::stream! {
-        let mut cmd = kamal_command(&project_path);
-        cmd.arg("app").arg("logs").arg("--follow").arg("--lines").arg("100");
-        cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
-
-        let mut child = match cmd.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                yield Ok(Event::default().data(format!("Failed to start logs: {}", e)));
+        let mut child = match kamal::spawn(&project_path, &KamalQuery::app_logs(tail, true)) {
+            Ok(child) => child,
+            Err(error) => {
+                yield Ok(Event::default().data(error.user_message()));
                 return;
             }
         };
 
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
 
-        if let Some(out) = stdout {
-            use tokio::io::{AsyncBufReadExt, BufReader};
-            let mut reader = BufReader::new(out).lines();
-            loop {
-                match reader.next_line().await {
-                    Ok(Some(line)) => {
-                        let clean = strip_ansi(&line);
-                        yield Ok(Event::default().data(clean));
-                    }
-                    Ok(None) => break,
-                    Err(_) => break,
-                }
-            }
+        if let Some(stdout) = stdout {
+            let tx = tx.clone();
+            tokio::spawn(async move { forward_lines(stdout, tx).await; });
         }
-        if let Some(err) = stderr {
-            use tokio::io::{AsyncBufReadExt, BufReader};
-            let mut reader = BufReader::new(err).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let clean = strip_ansi(&line);
-                if !clean.trim().is_empty() {
-                    yield Ok(Event::default().data(clean));
-                }
-            }
+        if let Some(stderr) = stderr {
+            let tx = tx.clone();
+            tokio::spawn(async move { forward_lines(stderr, tx).await; });
+        }
+        drop(tx);
+
+        while let Some(line) = rx.recv().await {
+            yield Ok(Event::default().data(line));
         }
 
-        let _ = child.kill().await;
+        drop(child);
     };
 
     Sse::new(stream).keep_alive(
@@ -135,4 +102,52 @@ pub async fn stream(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
+}
+
+async fn forward_lines<R>(reader: R, tx: tokio::sync::mpsc::Sender<String>)
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut lines = BufReader::new(reader).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let clean = strip_ansi(&line);
+        if clean.trim().is_empty() || kamal::is_kamal_progress(&clean) {
+            continue;
+        }
+        if tx.send(clean).await.is_err() {
+            break;
+        }
+    }
+}
+
+async fn read_logs(project_path: &std::path::Path, tail: u32) -> (Vec<String>, Option<String>) {
+    match kamal::output(project_path, &KamalQuery::app_logs(tail, false)).await {
+        Ok(output) if output.success => (tail_lines(&output.text, tail as usize), None),
+        Ok(output) => {
+            let detail = kamal::failure_detail(&output.text);
+            let message = if detail.is_empty() {
+                "Couldn't read the app logs. Nothing was changed.".to_string()
+            } else {
+                format!("Couldn't read the app logs. Nothing was changed.\n{detail}")
+            };
+            (Vec::new(), Some(message))
+        }
+        Err(error) => (Vec::new(), Some(error.user_message())),
+    }
+}
+
+fn tail_lines(text: &str, max: usize) -> Vec<String> {
+    let lines = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty() && !kamal::is_kamal_progress(line))
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    let skip = lines.len().saturating_sub(max);
+    lines.into_iter().skip(skip).collect()
+}
+
+fn normalize_tail(tail: Option<u32>) -> u32 {
+    tail.unwrap_or(200).clamp(1, 1_000)
 }

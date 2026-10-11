@@ -1,0 +1,13 @@
+{% if let Some(message) = error %}
+<pre class="error-block" role="alert">{{ message }}</pre>
+{% else if lines.is_empty() %}
+<p class="audit-empty">The audit log is empty.</p>
+{% else %}
+{% for line in lines %}
+{% if line.contains("Host:") %}
+<div class="audit-host">{{ line }}</div>
+{% else %}
+<pre class="log-line">{{ line }}</pre>
+{% endif %}
+{% endfor %}
+{% endif %}
